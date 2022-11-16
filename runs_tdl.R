@@ -1,4 +1,5 @@
 # Code specific to TDL
+source("funcs.R")
 
 # Base working directory
 setwd("C:\\Users\\Daniel\\DenverFINRISKHacky\\")
@@ -7,7 +8,22 @@ setwd("C:\\Users\\Daniel\\DenverFINRISKHacky\\")
 train <- list()
 train[["pheno"]] <- read.table("data\\DreamHF\\train\\pheno_training.csv", sep=",", header=TRUE, row.names=1)
 train[["readcounts"]] <- read.table("data\\DreamHF\\train\\readcounts_training.csv", sep=",", header=TRUE, row.names=1)
-train[["taxtable"]] <- read.table("data\\DreamHF\\train\\taxtable.csv", sep=",", header=TRUE)
+
+test <- list()
+test[["pheno"]] <- read.table("data\\DreamHF\\test\\pheno_test.csv", sep=",", header=TRUE, row.names=1)
+test[["readcounts"]] <- read.table("data\\DreamHF\\test\\readcounts_test.csv", sep=",", header=TRUE, row.names=1)
+
+library(survival)
+
+train_x <- apply(train[["readcounts"]], MARGIN=1, FUN=inormal)
+test_x <- apply(test[["readcounts"]], MARGIN=1, FUN=inormal)
+
+train_y <- survival::Surv(event = train[["pheno"]]$Event, time = train[["pheno"]]$Event_time)
+test_y <- survival::Surv(event = test[["pheno"]]$Event, time = test[["pheno"]]$Event_time)
+
+save.image("train_test.RData")
+
+#train[["taxtable"]] <- read.table("data\\DreamHF\\train\\taxtable.csv", sep=",", header=TRUE)
 
 # Inspect distributions
 
