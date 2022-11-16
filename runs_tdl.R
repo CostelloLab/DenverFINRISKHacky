@@ -15,8 +15,13 @@ test[["readcounts"]] <- read.table("data\\DreamHF\\test\\readcounts_test.csv", s
 
 library(survival)
 
+train_raw <- train[["readcounts"]]
 train_x <- apply(train[["readcounts"]], MARGIN=1, FUN=inormal)
+train_p <- train[["pheno"]]
+
+test_raw <- test[["readcounts"]]
 test_x <- apply(test[["readcounts"]], MARGIN=1, FUN=inormal)
+test_p <- test[["pheno"]]
 
 train_y <- survival::Surv(event = train[["pheno"]]$Event, time = train[["pheno"]]$Event_time)
 test_y <- survival::Surv(event = test[["pheno"]]$Event, time = test[["pheno"]]$Event_time)
@@ -48,7 +53,7 @@ as.matrix(train[["pheno"]])
 library(survival)
 
 train[["x"]] <- train[["pheno"]]
-train[["y"]] <- survival::Surv(
+#train[["y"]] <- survival::Surv(
 
 par(mfrow=c(2,2))
 boxplot(Age ~ Sex, data = train[["pheno"]], range=0)
@@ -60,4 +65,6 @@ ComplexHeatmap::Heatmap()
 
 
 
+# Distribution of follow-up times
 
+plot(
