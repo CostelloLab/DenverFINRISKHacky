@@ -72,3 +72,10 @@ Overview to the Challenge phases
 
 Data description is essential for understanding what we're trying to model:
 [https://www.synapse.org/#!Synapse:syn27130803/wiki/619274](https://www.synapse.org/#!Synapse:syn27130803/wiki/619274)
+
+### Objects in train_test.RData
+
+- train_x / test_x : rank inverse normal distributed counts
+- train_raw / test_raw : read counts before above normalization
+- train_p / test_p : phenotype (clinical) info for train and test sets respectively
+- train_y / test_y : Surv-response vector for train and test sets respectively 
