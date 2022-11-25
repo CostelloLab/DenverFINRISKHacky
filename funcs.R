@@ -50,11 +50,11 @@ collapseMicrobiome <- function(
 	#cmat
 }
 # Examples: 
- tmp_g <- collapseMicrobiome(t(train_raw), strata = "g")
- tmp_f <- collapseMicrobiome(t(train_raw), strata = "f")
- tmp_o <- collapseMicrobiome(t(train_raw), strata = "o")
- tmp_c <- collapseMicrobiome(t(train_raw), strata = "c")
- tmp_p <- collapseMicrobiome(t(train_raw), strata = "c")
+# tmp_g <- collapseMicrobiome(t(train_raw), strata = "g")
+# tmp_f <- collapseMicrobiome(t(train_raw), strata = "f")
+# tmp_o <- collapseMicrobiome(t(train_raw), strata = "o")
+# tmp_c <- collapseMicrobiome(t(train_raw), strata = "c")
+# tmp_p <- collapseMicrobiome(t(train_raw), strata = "c")
 # >  dim(tmp_g)
 # [1] 3615 2019
 # >  dim(tmp_f)
@@ -65,4 +65,37 @@ collapseMicrobiome <- function(
 # [1] 3615  190
 # >  dim(tmp_p)
 #[1] 3615  190
+# Sanity checking read counts:
+#
+#> train_raw[grep(grep("strep|Strep", colnames(tmp_g), value=TRUE)[21], rownames(train_raw)),1:5]
+#                                                                                                                   Simulated_328 Simulated_1644 Simulated_1710 Simulated_1732 Simulated_1727
+#k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Lactococcus;s__                                 0              0              0              0              0
+#k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Lactococcus;s__Lactococcus_garvieae             5              2              0              0              3
+#k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Lactococcus;s__Lactococcus_lactis              42              9              0              9             12
+#k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Lactococcus;s__Lactococcus_piscium              0              6              6              0              0
+#> tmp_g[1:5,"k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;f__Streptococcaceae;g__Lactococcus"]
+# Simulated_328 Simulated_1644 Simulated_1710 Simulated_1732 Simulated_1727 
+#            47             17              6              9             15
+# -> Matching
+
+
+#' Relatively straight-forward filter based on threshold values and proportion of samples that need to qualify
+filterMicrobiome <- function(
+	x, # Data matrix x
+	MARGIN = 2, # MARGIN to filter on (passed to apply etc; 1 = rows, 2 = columns)
+	prop = 0.10, # Proportion of samples required to have at least <threshold> value for variable to be included
+	threshold = 5, # Threshold value that samples ought to >= above
+	...
+){
+	# 'which' rows/cols to keep
+	w <- which(apply(x, MARGIN=MARGIN, FUN=\(q){
+		(sum(q>=threshold) / length(q)) >= prop
+	}))
+	# Return filtered rows or columns
+	switch(MARGIN, 
+		"1" = x[w,,drop=FALSE],
+		"2" = x[,w,drop=FALSE]
+	)
+}
+
 
