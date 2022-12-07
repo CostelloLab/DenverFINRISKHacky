@@ -1,8 +1,8 @@
-# Code specific to TDL
-source("funcs.R")
-
 # Base working directory
 setwd("C:\\Users\\Daniel\\DenverFINRISKHacky\\")
+
+# Code specific to TDL
+source("funcs.R")
 
 # Read in training data
 train <- list()
@@ -16,11 +16,27 @@ test[["readcounts"]] <- read.table("data\\DreamHF\\test\\readcounts_test.csv", s
 library(survival)
 
 train_raw <- train[["readcounts"]]
+# Expand train_raw by collapsing to different strata
+train_raw <- rbind(train_raw, t(collapseMicrobiome(t(train[["readcounts"]]), strata="k")) )
+train_raw <- rbind(train_raw, t(collapseMicrobiome(t(train[["readcounts"]]), strata="p")) )
+train_raw <- rbind(train_raw, t(collapseMicrobiome(t(train[["readcounts"]]), strata="c")) )
+train_raw <- rbind(train_raw, t(collapseMicrobiome(t(train[["readcounts"]]), strata="o")) )
+train_raw <- rbind(train_raw, t(collapseMicrobiome(t(train[["readcounts"]]), strata="f")) )
+train_raw <- rbind(train_raw, t(collapseMicrobiome(t(train[["readcounts"]]), strata="g")) )
+
 train_x <- apply(train[["readcounts"]], MARGIN=1, FUN=inormal)
 train_p <- train[["pheno"]]
 train_p <- train_p[,-which(colnames(train_p) %in% c("Event", "Event_time"))]
 
 test_raw <- test[["readcounts"]]
+# Expand test_raw by collapsing to different strata
+test_raw <- rbind(test_raw, t(collapseMicrobiome(t(test[["readcounts"]]), strata="k")) )
+test_raw <- rbind(test_raw, t(collapseMicrobiome(t(test[["readcounts"]]), strata="p")) )
+test_raw <- rbind(test_raw, t(collapseMicrobiome(t(test[["readcounts"]]), strata="c")) )
+test_raw <- rbind(test_raw, t(collapseMicrobiome(t(test[["readcounts"]]), strata="o")) )
+test_raw <- rbind(test_raw, t(collapseMicrobiome(t(test[["readcounts"]]), strata="f")) )
+test_raw <- rbind(test_raw, t(collapseMicrobiome(t(test[["readcounts"]]), strata="g")) )
+
 test_x <- apply(test[["readcounts"]], MARGIN=1, FUN=inormal)
 test_p <- test[["pheno"]]
 test_p <- test_p[,-which(colnames(train_p) %in% c("Event", "Event_time"))]
@@ -28,7 +44,24 @@ test_p <- test_p[,-which(colnames(train_p) %in% c("Event", "Event_time"))]
 train_y <- survival::Surv(event = train[["pheno"]]$Event, time = train[["pheno"]]$Event_time)
 test_y <- survival::Surv(event = test[["pheno"]]$Event, time = test[["pheno"]]$Event_time)
 
-save.image("train_test.RData")
+
+# Save only essential objects
+save(
+	# Train
+	train_raw, # Raw counts
+	train_x, # inormalized counts
+	train_p, # phenotype
+	train_y, # Survival response
+	
+	# Test
+	test_raw, # Raw counts
+	test_x, # inormalized counts
+	test_p, # phenotype
+	test_y, # Survival response
+
+	# Filename
+	file="train_test.RData"
+)
 
 #train[["taxtable"]] <- read.table("data\\DreamHF\\train\\taxtable.csv", sep=",", header=TRUE)
 
