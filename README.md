@@ -79,3 +79,14 @@ Data description is essential for understanding what we're trying to model:
 - train_raw / test_raw : read counts before above normalization
 - train_p / test_p : phenotype (clinical) info for train and test sets respectively
 - train_y / test_y : Surv-response vector for train and test sets respectively 
+
+### Short citations / insight
+
+- "Valtimokovettuma tautiin eli ateroskleroosiin ja siihen liittyviin sydän- ja verisuoniongelmiin on mikrobiomilla tutkittuja yhteyksiä. Asteikolla 1-10 mitattuna, mitä enemmän suojaavia tekijöitä löydetään mikrobiomista, sitä korkeampi on suojaava vaikutus näihin sairauksiin.   Jotkut bakteerit, kuten Erysipelotrichaceae tuottaa trimetyyliamiinia (TMA) koliinista, jota löytyy kananmunan keltuaisesta, sekä L-kartiniinia, jota saadaan punaisesta lihasta ja kalasta. TMA hapetetaan maksassa trimetyyliamiini-typpioksidiksi TMAO, johon liittyy kohonnut riski sairastua ateroskleroosiin ja muihin sydän- ja verisuonitauteihin."
+(https://www.riskigeeni.net/mikrobiomi.html)
+
+-> Some bacteria such as Erysipelotrichaeae produce trimethylaminine (TMA) from coline and L-cartinine; TMA is oxidated in the liver to TMAO, which involves a heightened risk to suffer from ateroscloreosis and other cardiovascular diseases
+
+### Summary of literature findings
+
+

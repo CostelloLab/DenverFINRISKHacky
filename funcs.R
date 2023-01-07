@@ -29,6 +29,7 @@ collapseMicrobiome <- function(
 	sep = ";", # Separator for the various strata
 	strata = c("k", "p", "c", "o", "f", "g"), # Chosen level to collapse to; 's' == 'species' is the lowest level identified, thus omitted. Can also be integer, with k==1, p==2, c==3, ...
 	collapseFUN = sum, # Function to apply over rows to collapse, applied across columns within chosen strata
+	debug = TRUE, # Give out additional output if debugging functionality
 	...
 ){
 	stratas <- c("k", "p", "c", "o", "f", "g")
@@ -42,12 +43,24 @@ collapseMicrobiome <- function(
 	mat <- do.call("rbind", lapply(stratFUN(x), FUN=\(q){ strsplit(q, ";")[[1]] }))
 	colnames(mat) <- c("k", "p", "c", "o", "f", "g", "s")
 	
+	if(debug){
+		print(paste("dim mat:", paste0(dim(mat), collapse=",")))
+		print(head(mat))
+	}
+	
+	
 	# Collapsed names per columns
-	nams <- apply(mat[,1:which(colnames(mat) == strata)], MARGIN=1, FUN=\(x){ paste0(x, collapse=";") })
+	nams <- apply(mat[,1:which(colnames(mat) == strata),drop=FALSE], MARGIN=1, FUN=\(x){ paste0(x, collapse=";") })
 	# Collapse matrix based on these indices
 	cmat <- do.call("cbind", by(t(x), INDICES=nams, FUN=\(q){ apply(q, MARGIN=2, FUN=collapseFUN) }))
+
+	if(debug){
+		print(paste("dim cmat:", paste0(dim(cmat), collapse=",")))
+		print(head(cmat))
+	}
 	
-	#cmat
+	
+	cmat
 }
 # Examples: 
 # tmp_g <- collapseMicrobiome(t(train_raw), strata = "g")
