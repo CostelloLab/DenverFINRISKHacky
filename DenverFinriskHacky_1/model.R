@@ -316,4 +316,3 @@ write.csv(res, file=paste0(PARAM$folder.result, "scores.csv"), quote=FALSE, row.
 # Just in case for debugging
 print("args provided:")
 print(args)
-Y
