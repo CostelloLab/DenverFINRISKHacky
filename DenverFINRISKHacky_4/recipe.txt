@@ -11,7 +11,10 @@ FROM: bioconductor/bioconductor_docker:devel
 %post
 
 # Install CRAN packages
-R --slave -e 'install.packages(c("Matrix", "glmnet"))'
+R --slave -e 'install.packages(c("Matrix", "glmnet", "ecodist"))'
+
+# Install Bioconductor packages
+R --slave -e 'BiocManager::install(c("microbiome", "phyloseq", "TreeSummarizedExperiment", "mia"))'
 
 %runscript
   exec Rscript model.R "$@"

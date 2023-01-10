@@ -1,0 +1,1 @@
+singularity exec DenverFINRISKHacky_3.sif Rscript model.R <Argument for input path>
