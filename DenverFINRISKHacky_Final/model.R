@@ -1,5 +1,5 @@
 # Model to be submitted to DREAM FINRISK Challenge
-# DenverFINRISKHacky
+# DenverFINRISKHacky - final submission
 
 ###
 #
@@ -36,7 +36,7 @@ model <- function(
 	seed = 1, # RNG seed for reproducibility
 	...
 ){
-	# Small system time print function to help track runtimes
+	# Small system time print function to help track runtimes; checking that the runtimes stay reasonable in a small-scale Ubuntu 22.04 LTS VM
 	catsystime <- \(x){
 		cat("Current system time\n")
 		if(!missing(x)) cat(paste("Current step:", x, "\n"))
@@ -192,21 +192,101 @@ model <- function(
 		pip(test_phyloseq, level = "Phylum")
 	))
 
+	# Literature or other source curated & weighted information on possibly interesting microbiome markers / phenodata
+	catsystime("Creating curated module data...")
+	
+	train_abuphylum <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Phylum"), transform="compositional")
+	test_abuphylum <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Phylum"), transform="compositional")
+	
+	## Common important themes
+	# - Elevated TMA/TMAO are bad for cardivascular health (-> anything that allows increased levels of them is a risk factor and vice versa)
+	# - Diet/disease burden/etc important other factors (info not available)
+	# - Info available on diabetes, BMI (obesity), ... -> interactions with phenodata?
+	
+	# Literature sweeps;
+	# - Rahman et al. The Gut Microbiota (Microbiome) in Cardiovascular Disease and Its Therapeutic Regulation, Front Cell Infect Microbiol, 2022:
+	# https://pubmed.ncbi.nlm.nih.gov/35795187/
+	#
+	# > Atherosclerosis: Increased Lactobacillus, decrease Roseburiam -> increased TMAO (multiple references)
+	# > Hypertension: Bacteroidetes/Firmicutes ratio as a marker for dysbiosis -> increased SCFA (multiple references)
+	# > Heart Failure: Increased Escherichia coli, Klebsiella pneumonia, Streptococcus viridians > increased TMAO (multiple references)
+	# > Chronic Kidney Disease: Increased Firmicutes, proteobacteria, actinobacteria > Increase Indoxyl sulfate, p-cresol sulfate (multiple references)
+
+	# - Masenga et al. Recent advances in modulation of cardiovascular diseases by the gut microbiota, 2022:
+	# https://www.nature.com/articles/s41371-022-00698-6
+	#
+	# > 
+	
+	# Astudillo & Mayrovitz: The Gut Microbiome and Cardiovascular Disease, 2021
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8121206/
+	#
+	# > "Recent studies have also shown that butyric acid-producing Clostridiales strains 
+	#   (Roseburia and Faecalibacterium prausnitzii) were found to be decreased in patients 
+	#   with type 2 diabetes mellitus, but non-butyrate producing Clostridiales and pathogens 
+	#   such as Clostridium clostridioforme were increased [14,15]."
+
+	## Coronary artery disease (CAD):
+	#
+	# - Cui et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5401719/
+	#
+	# > Increased relabu in patients: Firmicutes (phylum)
+	# > Decreased relabu in patients: Bacteroidetes (phylum)
+	#
+	# - Jie et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5635030/
+	# 
+	# > Increased relabu in patients: Enterobacteriaceae (family), Streptococcus (species)
+	# > Decreased relabu in patients: Roseburia Intestinalis and Faecalibacterium Prausnitzii
+	#
+	# - Zhu et al 2018 https://pubmed.ncbi.nlm.nih.gov/30192713/
+	#
+	# > Increased relabu in patients: Escherichia-Shigella and Enterococcus
+	# > Decreased relabu in patients: Faecalibacterium, Roseburia, Subdoligranulum and Eubacteriumrectale
+	#
+
+	## Heart failure patients (HFP):
+	#
+	# - Luedde et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5542738/ 
+	#
+	# Decreased relabu in patients: Coriobacteriaceae (family), Erysipelotrichaceae (family), Ruminococcaceae (family), Blautia (genus)
+	#
+	# - Kamo et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5362204/
+	#
+	# Here, low sample size (~20)
+	# Decreased relabu in patients: Eubacteriumrectale, Dorealongicatena
+	# Depleted relabu in patients (older patients only): Faecalibacterium
+	#	
+	# Increased relabu in patients: Ruminococcus gnavus	
+	# Decreased relabu in patients: Faecalibacterium Prausnitzii
+	#
+	# - Kummen et al. 2018 https://pubmed.ncbi.nlm.nih.gov/29519360/
+	# - Mayerhofer et al. 2020 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7160496/ 
+	#
+	# Increased relabu in patients: Prevotella, Hungatella, Succinclasticum
+	# Decreased relabu in patients: Lachnospiracea (family), Ruminococcaceae: Faecalibacterium, Bifidobacteriaceae: Bifidobacterium
+	#
+	# > B/F ratio
+
+	# Bacteroidetes to Firmicutes ratio appears multiple times, appears notable in multiple contexts as a marker for dysbiosis	
+	train_b2f <- apply(train_abuphylum[grep("[b|B]acteroidetes", rownames(train_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)/
+			apply(train_abuphylum[grep("[f|F]irmicutes", rownames(train_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)
+	test_b2f <- apply(test_abuphylum[grep("[b|B]acteroidetes", rownames(test_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)/
+			apply(test_abuphylum[grep("[f|F]irmicutes", rownames(test_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)
+
 	## Modular modelling of risk
 
 	# A risk module capturing age effect, adjusted by sex (females tend to have more favorable outcome)
 	# Using various shapes; linear, squared, and n*log(n) after shifting, with interactions to Sex
-	module_agesex <- function(
-		train, # Training clinical data
-		test, # Testing clinical data
-		debug = FALSE, # If debug output is needed
-		...
-	){
-		cph <- coxph(Surv(event = Event, time = Event_time) ~ Sex*Age + Sex*AgeShift2 + Sex*AgeNlogNshift, data = train)
-		pred <- predict(cph, newdata = test)
-		pred
-	}
-	# Collapse microbiome to suitable phyla level, inverse normal rank transformation, and utilize glmnet 10-fold CV
+	#module_agesex <- function(
+	#	train, # Training clinical data
+	#	test, # Testing clinical data
+	#	debug = FALSE, # If debug output is needed
+	#	...
+	#){
+	#	cph <- coxph(Surv(event = Event, time = Event_time) ~ Sex*Age + Sex*AgeShift2 + Sex*AgeNlogNshift, data = train)
+	#	pred <- predict(cph, newdata = test)
+	#	pred
+	#}
+	# Generic use module training with glmnet 10-fold CV
 	# ... or other generic use of LASSO such as odd combinations of metadata
 	module_glmnet <- function(
 		trainx,
@@ -220,8 +300,9 @@ model <- function(
 		trainy <- trainy[which(!is.na(trainy))]
 
 		# Fit, CV, predict
-		fit <- glmnet(x = as.matrix(trainx), y = trainy, family = "cox")
-		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox")
+		# sub >=6; changing type.measure to C-index, LASSO alpha == 1 to Elastic Net alpha == 0.5
+		fit <- glmnet(x = as.matrix(trainx), y = trainy, family = "cox", alpha = 0.5)
+		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox", type.measure = "C", alpha = 0.5)
 
 		print("lambda.1se, non-zero coefs:")			
 		print(colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]])
@@ -241,7 +322,8 @@ model <- function(
 	# Part Ia: Training data, individual modules
 	catsystime("Pt Ia")	
 	catsystime("module_agesex")
-	ensemble_temp[,"module_agesex"] <- module_agesex(train = train_clin, test = train_clin)
+	#ensemble_temp[,"module_agesex"] <- module_agesex(train = train_clin, test = train_clin)
+	ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
 	catsystime("module_metamix")
 	ensemble_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = train_clin2)
 	catsystime("module_genus_glmnet")
@@ -261,7 +343,8 @@ model <- function(
 	# Part Ib: Test data, individual modules
 	catsystime("Pt Ib")
 	catsystime("module_agesex")
-	output_temp[,"module_agesex"] <- module_agesex(train = train_clin, test = test_clin)
+	#output_temp[,"module_agesex"] <- module_agesex(train = train_clin, test = test_clin)
+	output_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
 	catsystime("module_metamix")
 	output_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = test_clin2)
 	catsystime("module_genus_glmnet")
