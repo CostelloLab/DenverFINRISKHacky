@@ -45,6 +45,7 @@ model <- function(
 	}
 	
 	catsystime("Start")
+	start_time <- Sys.time()
 
 	# Set seed for reproducibility
 	set.seed(seed)
@@ -92,6 +93,17 @@ model <- function(
 
 	# Construct response Surv and remove it from the pheno data
 	train_y <- survival::Surv(time = train_clin$Event_time, event = train_clin$Event)	
+
+	# Omit Event_time and Event from raw clinical data
+	train_clin <- train_clin[,which(!colnames(train_clin) %in% c("Event", "Event_time"))]
+	test_clin <- test_clin[,which(!colnames(test_clin) %in% c("Event", "Event_time"))]
+	train_clin <- cbind(train_clin, interact.all(train_clin))
+	test_clin <- cbind(test_clin, interact.all(test_clin))
+
+	#print("dim train_clin")
+	#print(dim(train_clin))
+	#print("dim test_clin")
+	#print(dim(test_clin))
 
 	# Microbiome diversity metrics
 
@@ -301,8 +313,8 @@ model <- function(
 
 		# Fit, CV, predict
 		# sub >=6; changing type.measure to C-index, LASSO alpha == 1 to Elastic Net alpha == 0.5
-		fit <- glmnet(x = as.matrix(trainx), y = trainy, family = "cox", alpha = 0.5)
-		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox", type.measure = "C", alpha = 0.5)
+		fit <- glmnet(x = as.matrix(trainx), y = trainy, family = "cox", alpha = 1.0)
+		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox", type.measure = "C", alpha = 1.0)
 
 		print("lambda.1se, non-zero coefs:")			
 		print(colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]])
@@ -323,7 +335,7 @@ model <- function(
 	catsystime("Pt Ia")	
 	catsystime("module_agesex")
 	#ensemble_temp[,"module_agesex"] <- module_agesex(train = train_clin, test = train_clin)
-	ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
+	ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = train_clin)
 	catsystime("module_metamix")
 	ensemble_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = train_clin2)
 	catsystime("module_genus_glmnet")
@@ -389,6 +401,11 @@ model <- function(
 	# being associated with higher likelihood of having HF"
 	output_final[,"Score"] <- outscale(output_final[,"Score"])
 
+	# Runtime sanity checking
+	diff_time <- end_time - start_time
+	cat("Total runtime taken:\n")
+	cat(paste(as.character(diff_time), attr(diff_time, "units")))
+	cat("\n\n")
 	# Return scores df
 	output_final		
 }
