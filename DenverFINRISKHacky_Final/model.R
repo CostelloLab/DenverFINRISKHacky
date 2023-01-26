@@ -402,7 +402,7 @@ model <- function(
 	output_final[,"Score"] <- outscale(output_final[,"Score"])
 
 	# Runtime sanity checking
-	diff_time <- end_time - start_time
+	diff_time <- Sys.time() - start_time
 	cat("Total runtime taken:\n")
 	cat(paste(as.character(diff_time), attr(diff_time, "units")))
 	cat("\n\n")
