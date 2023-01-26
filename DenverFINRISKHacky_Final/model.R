@@ -65,6 +65,30 @@ model <- function(
 	# Naive median imputation to phenodata to remove NAs
 	train_clin <- as.data.frame(imputationNaive(train_clin))
 	test_clin <- as.data.frame(imputationNaive(test_clin))
+
+	# Create a self-created, relatively arbitrary "disease burden proxy" variable out of multiple risk factors combined
+	diseaseburden <- \(x){
+		burden <- 0
+		# Elevated risk for men at younger age; step at 50 years for men, 65 years for women
+		burden <- burden + ifelse(x["Sex"] == 1, ifelse(x["Age"] >= 50, 1, 0), ifelse(x["Age"] >= 65, 1, 0))
+		# Overweight
+		burden <- burden + ifelse(x["BodyMassIndex"] >= 25, 1, 0)
+		# Obese adds a second point
+		burden <- burden + ifelse(x["BodyMassIndex"] >= 30, 1, 0)
+		# Smoking increases overall disease burden
+		burden <- burden + ifelse(x["Smoking"] == 1, 1, 0)
+		# Diabetes increases risk
+		burden <- burden + ifelse(x["PrevalentDiabetes"] == 1, 1, 0)
+		# Prevalent conditions increase risk
+		burden <- burden + ifelse(x["PrevalentCHD"] == 1, 1, 0)
+		burden <- burden + ifelse(x["PrevalentHFAIL"] == 1, 1, 0)
+		# Hypertension increases risk of cardiovascular events; setting threshod at 140; could be stratified according to gender as well
+		burden <- burden + ifelse(x["SystolicBP"] >= 140, 1, 0)
+		# Taking non-HDL cholesterol risk level of 3.37 threshold from https://www.mayoclinic.org/diseases-conditions/high-blood-cholesterol/expert-answers/cholesterol-ratio/faq-20058006
+		burden <- burden + ifelse(x["NonHDLcholesterol"] >= 3.37, 1, 0)		
+	}
+	train_clin[,"DiseaseBurden"] <- apply(train_clin, MARGIN=1, FUN=diseaseburden)
+	test_clin[,"DiseaseBurden"] <- apply(test_clin, MARGIN=1, FUN=diseaseburden)
 	
 	# Squared & shifted age
 	train_clin[,"AgeShift2"] <- sqshift(train_clin[,"Age"])
@@ -72,6 +96,202 @@ model <- function(
 
 	test_clin[,"AgeShift2"] <- sqshift(test_clin[,"Age"])
 	test_clin[,"AgeNlogNshift"] <- nlognshift(test_clin[,"Age"])
+
+	# Literature or other source curated & weighted information on possibly interesting microbiome markers / phenodata
+	catsystime("Creating curated module data...")
+	
+	# Species
+	train_abuspecies <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Species"), transform="compositional")
+	test_abuspecies <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Species"), transform="compositional")
+	# Genus
+	train_abugenus <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Genus"), transform="compositional")
+	test_abugenus <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Genus"), transform="compositional")
+	# Family
+	train_abufamily <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Family"), transform="compositional")
+	test_abufamily <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Family"), transform="compositional")
+	# Order
+	train_abuorder <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Order"), transform="compositional")
+	test_abuorder <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Order"), transform="compositional")
+	# Class
+	train_abuclass <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Class"), transform="compositional")
+	test_abuclass <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Class"), transform="compositional")
+	# Phylum
+	train_abuphylum <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Phylum"), transform="compositional")
+	test_abuphylum <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Phylum"), transform="compositional")
+	# Domain/Kingdom
+	train_abudomain <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Domain"), transform="compositional")
+	test_abudomain <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Domain"), transform="compositional")
+	
+	## Common important themes
+	# - Elevated TMA/TMAO are bad for cardivascular health (-> anything that allows increased levels of them is a risk factor and vice versa)
+	# - Diet/disease burden/etc important other factors (info not available)
+	# - Info available on diabetes, BMI (obesity), ... -> interactions with phenodata?
+	
+	# Literature sweeps;
+	# - Rahman et al. The Gut Microbiota (Microbiome) in Cardiovascular Disease and Its Therapeutic Regulation, Front Cell Infect Microbiol, 2022:
+	# https://pubmed.ncbi.nlm.nih.gov/35795187/
+	#
+	# > Atherosclerosis: Increased Lactobacillus (Genus?), decrease Roseburiam (Genus?) -> increased TMAO (multiple references)
+	# > Hypertension: Bacteroidetes (Phylum) /Firmicutes (Phylum) ratio as a marker for dysbiosis -> increased SCFA (multiple references)
+	# > Heart Failure: Increased Escherichia coli (Species), Klebsiella pneumonia (Species), Streptococcus viridians (Species)[missing from taxa] > increased TMAO (multiple references)
+	# > Chronic Kidney Disease: Increased Firmicutes (Phylum), proteobacteria (Phylum), actinobacteria (Phylum) > Increase Indoxyl sulfate, p-cresol sulfate (multiple references)
+
+	# - Masenga et al. Recent advances in modulation of cardiovascular diseases by the gut microbiota, 2022:
+	# https://www.nature.com/articles/s41371-022-00698-6
+	#
+	# > "It has been shown that atheromatous plaques of patients with coronary artery disease (CAD) 
+	#   contain pathogenic Staphylococcus species, Proteus vulgaris, Klebsiella pneumoniae, and Streptococcus 
+	#   species [7]. Their guts exhibit an increase in Lactobacillus, Streptococcus, Esherichia, Shigella and 
+	#   Enterococcus species, concomitant with a reduction in Faecalibacterium, Subdoligranulum, Roseburia, 
+	#   Eubacterium rectale and Bacteroides fragilis species, the latter group known to regulate T-cell functions 
+	#   in the gut mucosa with consequent anti-inflammatory effects and protection of the gut barrier [7, 14]. 
+	#   In patients at high risk for stroke, there is a reduction in butyrate-producing bacteria such as those 
+	#   of the Lachnospiraceae and Ruminococcaceae family, resulting in reduced fecal butyrate levels and concomitant 
+	#   increases in intestinal pathogens such as those of the Enterobacteriaceae and Veillonellaceae family [7]."
+	# > "An elegant systematic review and meta-analysis of randomized, controlled trials showed that probiotics 
+	#   containing Lactobacillus spp are effective in blood pressure regulation if used in sufficient amount 
+	#   for at least 8 weeks [38]."
+	# > Multiple points regarding sex and micriobiota, aging and micriobiota, specific findings for SCFA
+	# > "Certain microbial species in the gut can inactivate or lessen the potency of drugs prescribed to aid the 
+	#   management of CVDs. The therapeutic effects of statins are attenuated by abundant presence of Lactobacillus, 
+	#   Eubacterium, Faecalibacterium, and Bifidobacterium and decreased proportion of genus Clostridium [5], which 
+	#   renders these drugs relatively ineffective in decreasing LDL levels. Similarly, treatment of atrial fibrillation, 
+	#   atrial flutter, and heart failure using digoxin may not be efficacious when Eggerthella lenta strains are abundant, 
+	#   since they inactivate this drug [5]. Conversely, therapeutic drugs may alter the microbiota. For example, metformin, 
+	#   the glucose lowering drug used in diabetes mellitus treatment, cancers, CVD and other conditions increases the 
+	#   amount of pathogenic Escherichia-Shigella species [5]."
+	
+	# Astudillo & Mayrovitz: The Gut Microbiome and Cardiovascular Disease, 2021
+	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8121206/
+	#
+	# > "Recent studies have also shown that butyric acid-producing Clostridiales strains 
+	#   (Roseburia and Faecalibacterium prausnitzii) were found to be decreased in patients 
+	#   with type 2 diabetes mellitus, but non-butyrate producing Clostridiales and pathogens 
+	#   such as Clostridium clostridioforme were increased [14,15]."
+	# > "Patients with inflammatory bowel disease (IBD), a chronic intestinal condition, have 
+	#   an up to three-fold higher risk for developing venous thromboembolic (VTE) complications 
+	#   compared to the general population [37]. Additionally, mucin degrading bacterial species 
+	#   such as Lachnospiraceae and Ruminococcus are more abundant in patients with irritable 
+	#   bowel syndrome (IBS) [38]"
+
+
+	## Coronary artery disease (CAD):
+	#
+	# - Cui et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5401719/
+	#
+	# > Increased relabu in patients: Firmicutes (phylum)
+	# > Decreased relabu in patients: Bacteroidetes (phylum)
+	#
+	# - Jie et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5635030/
+	# 
+	# > Increased relabu in patients: Enterobacteriaceae (family), Streptococcus (species)[or genus rather?]
+	# > Decreased relabu in patients: Roseburia Intestinalis (species) and Faecalibacterium Prausnitzii (species)
+	#
+	# - Zhu et al 2018 https://pubmed.ncbi.nlm.nih.gov/30192713/
+	#
+	# > Increased relabu in patients: Escherichia-Shigella (species)[not in taxa] and Enterococcus (genus)
+	# > Decreased relabu in patients: Faecalibacterium (genus)[only taxa present is Faecalibacterium Prausnatzii], Roseburia (genus), Subdoligranulum (genus) and Eubacterium rectale (species)[not in taxa]
+	#
+
+	## Heart failure patients (HFP):
+	#
+	# - Luedde et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5542738/ 
+	#
+	# Decreased relabu in patients: Coriobacteriaceae (family), Erysipelotrichaceae (family), Ruminococcaceae (family), Blautia (genus)
+	#
+	# - Kamo et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5362204/
+	#
+	# Here, low sample size (~20)
+	# Decreased relabu in patients: Eubacterium rectale (species), Dorea( )longicatena (species)
+	# Depleted relabu in patients (older patients only): Faecalibacterium (genus)
+	#	
+	# Increased relabu in patients: Ruminococcus gnavus (species)	
+	# Decreased relabu in patients: Faecalibacterium Prausnitzii (species)
+	#
+	# - Kummen et al. 2018 https://pubmed.ncbi.nlm.nih.gov/29519360/
+	# - Mayerhofer et al. 2020 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7160496/ 
+	#
+	# Increased relabu in patients: Prevotella (genus), Hungatella (genus), Succiniclasticum (genus)
+	# Decreased relabu in patients: Lachnospiracea (family), Ruminococcaceae: Faecalibacterium (genus), Bifidobacteriaceae: Bifidobacterium (genus)
+	#
+	# > B/F ratio
+
+	# Bacteroidetes to Firmicutes ratio appears multiple times, appears notable in multiple contexts as a marker for dysbiosis
+	# Taxa greps mostly included also plasmid variants, collapsing them together
+	
+	# Certain taxa of interest from various levels taken from literature
+	train_curated1 <- data.frame(
+		p__Firmicutes = apply(train_abuphylum[grep("p__Firmicutes", rownames(train_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		p__Bacteroidetes = apply(train_abuphylum[grep("p__Bacteroidetes", rownames(train_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Lactobacillus = apply(train_abugenus[grep("g__Lactobacillus", rownames(train_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Roseburia = apply(train_abugenus[grep("g__Roseburia", rownames(train_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		s__Escherichia_coli = apply(train_abuspecies[grep("Escherichia_coli", rownames(train_abuspecies), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		s__Klebsiella_pneumonia = apply(train_abuspecies[grep("Klebsiella_pneumonia", rownames(train_abuspecies), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		p__Proteobacteria = apply(train_abuphylum[grep("p__Proteobacteria", rownames(train_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		p__Actinobacteria = apply(train_abuphylum[grep("p__Actinobacteria", rownames(train_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		f__Enterobacteriaceae = apply(train_abufamily[grep("f__Enterobacteriaceae", rownames(train_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Streptococcus = apply(train_abugenus[grep("g__Streptococcus", rownames(train_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		s__Roseburia_intestinalis = apply(train_abuspecies[grep("s__Roseburia_intestinalis", rownames(train_abuspecies), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		s__Faecalibacterium_prausnitzii = apply(train_abuspecies[grep("s__Faecalibacterium_prausnitzii", rownames(train_abuspecies), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Enterococcus = apply(train_abugenus[grep("g__Enterococcus", rownames(train_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Subdoligranulum = apply(train_abugenus[grep("g__Subdoligranulum", rownames(train_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		f__Coriobacteriaceae = apply(train_abufamily[grep("f__Coriobacteriaceae", rownames(train_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		f__Erysipelotrichaceae = apply(train_abufamily[grep("f__Erysipelotrichaceae", rownames(train_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		f__Ruminococcaceae = apply(train_abufamily[grep("f__Ruminococcaceae", rownames(train_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Blautia = apply(train_abugenus[grep("g__Blautia", rownames(train_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)
+	)
+		
+	# Loosely generated literature-driven abundance combinations		
+	train_curated2 <- data.frame(
+		F2P = train_curated1$p__Firmicutes / train_curated1$p__Bacteroidetes,
+		Atherosclerosis = train_curated1$g__Lactobacillus - train_curated1$g__Roseburia,
+		HF = train_curated1$s__Escherichia_coli - train_curated1$s__Klebsiella_pneumonia,
+		CKD = train_curated1$p__Firmicutes + train_curated1$p__Proteobacteria + train_curated1$p__Actinobacteria,
+		CAD = train_curated1$p__Firmicutes - train_curated1$p__Bacteroidetes + train_curated1$f__Enterobacteriaceae 
+			+ train_curated1$g__Streptococcus - train_curated1$s__Roseburia_intestinalis - train_curated1$s__Faecalibacterium_prausnitzii,
+		HFP = train_curated1$f__Ruminococcaceae - train_curated1$f__Coriobacteriaceae - train_curated1$f__Erysipelotrichaceae
+	)
+	# Add interactions
+	train_curated2 <- cbind(train_curated2, interact.all(train_curated2))
+			
+	# Certain taxa of interest from various levels taken from literature
+	test_curated1 <- data.frame(
+		p__Firmicutes = apply(test_abuphylum[grep("p__Firmicutes", rownames(test_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		p__Bacteroidetes = apply(test_abuphylum[grep("p__Bacteroidetes", rownames(test_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Lactobacillus = apply(test_abugenus[grep("g__Lactobacillus", rownames(test_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Roseburia = apply(test_abugenus[grep("g__Roseburia", rownames(test_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		s__Escherichia_coli = apply(test_abuspecies[grep("Escherichia_coli", rownames(test_abuspecies), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		s__Klebsiella_pneumonia = apply(test_abuspecies[grep("Klebsiella_pneumonia", rownames(test_abuspecies), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		p__Proteobacteria = apply(test_abuphylum[grep("p__Proteobacteria", rownames(test_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		p__Actinobacteria = apply(test_abuphylum[grep("p__Actinobacteria", rownames(test_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		f__Enterobacteriaceae = apply(test_abufamily[grep("f__Enterobacteriaceae", rownames(test_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Streptococcus = apply(test_abugenus[grep("g__Streptococcus", rownames(test_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		s__Roseburia_intestinalis = apply(test_abuspecies[grep("s__Roseburia_intestinalis", rownames(test_abuspecies), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		s__Faecalibacterium_prausnitzii = apply(test_abuspecies[grep("s__Faecalibacterium_prausnitzii", rownames(test_abuspecies), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Enterococcus = apply(test_abugenus[grep("g__Enterococcus", rownames(test_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Subdoligranulum = apply(test_abugenus[grep("g__Subdoligranulum", rownames(test_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		f__Coriobacteriaceae = apply(test_abufamily[grep("f__Coriobacteriaceae", rownames(test_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		f__Erysipelotrichaceae = apply(test_abufamily[grep("f__Erysipelotrichaceae", rownames(test_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		f__Ruminococcaceae = apply(test_abufamily[grep("f__Ruminococcaceae", rownames(test_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
+		g__Blautia = apply(test_abugenus[grep("g__Blautia", rownames(test_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)
+	)
+
+	# Loosely generated literature-driven abundance combinations		
+	test_curated2 <- data.frame(
+		F2P = test_curated1$p__Firmicutes / test_curated1$p__Bacteroidetes,
+		Atherosclerosis = test_curated1$g__Lactobacillus - test_curated1$g__Roseburia,
+		HF = test_curated1$s__Escherichia_coli - test_curated1$s__Klebsiella_pneumonia,
+		CKD = test_curated1$p__Firmicutes + test_curated1$p__Proteobacteria + test_curated1$p__Actinobacteria,
+		CAD = test_curated1$p__Firmicutes - test_curated1$p__Bacteroidetes + test_curated1$f__Enterobacteriaceae 
+			+ test_curated1$g__Streptococcus - test_curated1$s__Roseburia_intestinalis - test_curated1$s__Faecalibacterium_prausnitzii,
+		HFP = test_curated1$f__Ruminococcaceae - test_curated1$f__Coriobacteriaceae - test_curated1$f__Erysipelotrichaceae
+	)
+	# Add interactions
+	test_curated2 <- cbind(test_curated2, interact.all(test_curated2))
+			
+	# Add Firmicutes to Bacteroidetes to clinical phenodata due to potential interactions with phenodata
+	train_clin[,"F2P"] <- train_curated1[,"p__Firmicutes"] / train_curated1[,"p__Bacteroidetes"]
+	test_clin[,"F2P"] <- test_curated1[,"p__Firmicutes"] / test_curated1[,"p__Bacteroidetes"]
 
 	# Create shifted & z-scored clinical variables, with all pairwise interactions incorporated
 	train_clin2a <- apply(train_clin[,-which(colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=shift)
@@ -94,16 +314,13 @@ model <- function(
 	# Construct response Surv and remove it from the pheno data
 	train_y <- survival::Surv(time = train_clin$Event_time, event = train_clin$Event)	
 
-	# Omit Event_time and Event from raw clinical data
+	# Omit Event_time and Event from raw clinical data, then obtain combinations
 	train_clin <- train_clin[,which(!colnames(train_clin) %in% c("Event", "Event_time"))]
 	test_clin <- test_clin[,which(!colnames(test_clin) %in% c("Event", "Event_time"))]
+	
+	# Interaction terms added
 	train_clin <- cbind(train_clin, interact.all(train_clin))
 	test_clin <- cbind(test_clin, interact.all(test_clin))
-
-	#print("dim train_clin")
-	#print(dim(train_clin))
-	#print("dim test_clin")
-	#print(dim(test_clin))
 
 	# Microbiome diversity metrics
 
@@ -202,104 +419,11 @@ model <- function(
 		pip(test_phyloseq, level = "Order"),
 		pip(test_phyloseq, level = "Class"),
 		pip(test_phyloseq, level = "Phylum")
-	))
-
-	# Literature or other source curated & weighted information on possibly interesting microbiome markers / phenodata
-	catsystime("Creating curated module data...")
-	
-	train_abuphylum <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Phylum"), transform="compositional")
-	test_abuphylum <- microbiome::abundances(microbiome::aggregate_taxa(test_phyloseq, level = "Phylum"), transform="compositional")
-	
-	## Common important themes
-	# - Elevated TMA/TMAO are bad for cardivascular health (-> anything that allows increased levels of them is a risk factor and vice versa)
-	# - Diet/disease burden/etc important other factors (info not available)
-	# - Info available on diabetes, BMI (obesity), ... -> interactions with phenodata?
-	
-	# Literature sweeps;
-	# - Rahman et al. The Gut Microbiota (Microbiome) in Cardiovascular Disease and Its Therapeutic Regulation, Front Cell Infect Microbiol, 2022:
-	# https://pubmed.ncbi.nlm.nih.gov/35795187/
-	#
-	# > Atherosclerosis: Increased Lactobacillus, decrease Roseburiam -> increased TMAO (multiple references)
-	# > Hypertension: Bacteroidetes/Firmicutes ratio as a marker for dysbiosis -> increased SCFA (multiple references)
-	# > Heart Failure: Increased Escherichia coli, Klebsiella pneumonia, Streptococcus viridians > increased TMAO (multiple references)
-	# > Chronic Kidney Disease: Increased Firmicutes, proteobacteria, actinobacteria > Increase Indoxyl sulfate, p-cresol sulfate (multiple references)
-
-	# - Masenga et al. Recent advances in modulation of cardiovascular diseases by the gut microbiota, 2022:
-	# https://www.nature.com/articles/s41371-022-00698-6
-	#
-	# > 
-	
-	# Astudillo & Mayrovitz: The Gut Microbiome and Cardiovascular Disease, 2021
-	# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8121206/
-	#
-	# > "Recent studies have also shown that butyric acid-producing Clostridiales strains 
-	#   (Roseburia and Faecalibacterium prausnitzii) were found to be decreased in patients 
-	#   with type 2 diabetes mellitus, but non-butyrate producing Clostridiales and pathogens 
-	#   such as Clostridium clostridioforme were increased [14,15]."
-
-	## Coronary artery disease (CAD):
-	#
-	# - Cui et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5401719/
-	#
-	# > Increased relabu in patients: Firmicutes (phylum)
-	# > Decreased relabu in patients: Bacteroidetes (phylum)
-	#
-	# - Jie et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5635030/
-	# 
-	# > Increased relabu in patients: Enterobacteriaceae (family), Streptococcus (species)
-	# > Decreased relabu in patients: Roseburia Intestinalis and Faecalibacterium Prausnitzii
-	#
-	# - Zhu et al 2018 https://pubmed.ncbi.nlm.nih.gov/30192713/
-	#
-	# > Increased relabu in patients: Escherichia-Shigella and Enterococcus
-	# > Decreased relabu in patients: Faecalibacterium, Roseburia, Subdoligranulum and Eubacteriumrectale
-	#
-
-	## Heart failure patients (HFP):
-	#
-	# - Luedde et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5542738/ 
-	#
-	# Decreased relabu in patients: Coriobacteriaceae (family), Erysipelotrichaceae (family), Ruminococcaceae (family), Blautia (genus)
-	#
-	# - Kamo et al. 2017 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5362204/
-	#
-	# Here, low sample size (~20)
-	# Decreased relabu in patients: Eubacteriumrectale, Dorealongicatena
-	# Depleted relabu in patients (older patients only): Faecalibacterium
-	#	
-	# Increased relabu in patients: Ruminococcus gnavus	
-	# Decreased relabu in patients: Faecalibacterium Prausnitzii
-	#
-	# - Kummen et al. 2018 https://pubmed.ncbi.nlm.nih.gov/29519360/
-	# - Mayerhofer et al. 2020 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7160496/ 
-	#
-	# Increased relabu in patients: Prevotella, Hungatella, Succinclasticum
-	# Decreased relabu in patients: Lachnospiracea (family), Ruminococcaceae: Faecalibacterium, Bifidobacteriaceae: Bifidobacterium
-	#
-	# > B/F ratio
-
-	# Bacteroidetes to Firmicutes ratio appears multiple times, appears notable in multiple contexts as a marker for dysbiosis	
-	train_b2f <- apply(train_abuphylum[grep("[b|B]acteroidetes", rownames(train_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)/
-			apply(train_abuphylum[grep("[f|F]irmicutes", rownames(train_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)
-	test_b2f <- apply(test_abuphylum[grep("[b|B]acteroidetes", rownames(test_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)/
-			apply(test_abuphylum[grep("[f|F]irmicutes", rownames(test_abuphylum), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)
+	))	
 
 	## Modular modelling of risk
-
-	# A risk module capturing age effect, adjusted by sex (females tend to have more favorable outcome)
-	# Using various shapes; linear, squared, and n*log(n) after shifting, with interactions to Sex
-	#module_agesex <- function(
-	#	train, # Training clinical data
-	#	test, # Testing clinical data
-	#	debug = FALSE, # If debug output is needed
-	#	...
-	#){
-	#	cph <- coxph(Surv(event = Event, time = Event_time) ~ Sex*Age + Sex*AgeShift2 + Sex*AgeNlogNshift, data = train)
-	#	pred <- predict(cph, newdata = test)
-	#	pred
-	#}
 	# Generic use module training with glmnet 10-fold CV
-	# ... or other generic use of LASSO such as odd combinations of metadata
+	# ... or other generic use of L1 (LASSO) with possibility to incorporate L2-norm as well via alpha
 	module_glmnet <- function(
 		trainx,
                 trainy,
@@ -313,8 +437,8 @@ model <- function(
 
 		# Fit, CV, predict
 		# sub >=6; changing type.measure to C-index, LASSO alpha == 1 to Elastic Net alpha == 0.5
-		fit <- glmnet(x = as.matrix(trainx), y = trainy, family = "cox", alpha = 1.0)
-		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox", type.measure = "C", alpha = 1.0)
+		fit <- glmnet(x = as.matrix(trainx), y = trainy, family = "cox", alpha = 1)
+		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox", type.measure = "C", alpha = 1)
 
 		print("lambda.1se, non-zero coefs:")			
 		print(colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]])
@@ -348,6 +472,10 @@ model <- function(
 	ensemble_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = train_beta)
 	catsystime("module_relabus_glmnet")
 	ensemble_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = train_relabus)
+	catsystime("module_curated1_glmnet")
+	ensemble_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = train_curated1)
+	catsystime("module_curated2_glmnet")
+	ensemble_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = train_curated2)
 
 	#print("Ensemble head")
 	#print(head(ensemble_temp))
@@ -369,12 +497,16 @@ model <- function(
 	output_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = test_beta)
 	catsystime("module_relabus_glmnet")
 	output_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = test_relabus)
+	catsystime("module_curated1_glmnet")
+	output_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = test_curated1)
+	catsystime("module_curated2_glmnet")
+	output_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
 		
 	#print("Temp output head")
 	#print(head(output_temp))
 
 	# Part II: Find coefficients that maximize ensemble modules' linear sum for coxph in training data
-	catsystime("Pt II")	
+	#catsystime("Pt II")	
 
 	# Submissions 1-3 were not penalized Cox ensembles
 	if(v < 4){
@@ -389,7 +521,7 @@ model <- function(
 		output_final[,"Score"] <- predict(ensemble_cox, newdata = output_temp)	
 	# Submissions 4+ testing penalized Cox ensembles (nested basically); sub 4 is more conservative with lambda.1se, sub 5 is lambda.min
 	}else{
-		catsystime("Pt III")
+		catsystime("-- Final modules to include, nested regularization --")
 		#print("Nested regularization")
 		w1 <- grep("module", colnames(ensemble_temp), value = TRUE)
 		w2 <- grep("module", colnames(output_temp), value = TRUE)
