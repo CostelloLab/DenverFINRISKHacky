@@ -127,7 +127,7 @@ model <- function(
 	# - Diet/disease burden/etc important other factors (info not available)
 	# - Info available on diabetes, BMI (obesity), ... -> interactions with phenodata?
 	
-	# Literature sweeps;
+	# Brief literature sweeps;
 	# - Rahman et al. The Gut Microbiota (Microbiome) in Cardiovascular Disease and Its Therapeutic Regulation, Front Cell Infect Microbiol, 2022:
 	# https://pubmed.ncbi.nlm.nih.gov/35795187/
 	#
@@ -243,7 +243,7 @@ model <- function(
 		
 	# Loosely generated literature-driven abundance combinations		
 	train_curated2 <- data.frame(
-		F2P = train_curated1$p__Firmicutes / train_curated1$p__Bacteroidetes,
+		F2P = train_curated1$p__Firmicutes / ( train_curated1$p__Bacteroidetes + 0.0001), # Add small systematic epsilon to avoid division by zero
 		Atherosclerosis = train_curated1$g__Lactobacillus - train_curated1$g__Roseburia,
 		HF = train_curated1$s__Escherichia_coli - train_curated1$s__Klebsiella_pneumonia,
 		CKD = train_curated1$p__Firmicutes + train_curated1$p__Proteobacteria + train_curated1$p__Actinobacteria,
@@ -278,7 +278,7 @@ model <- function(
 
 	# Loosely generated literature-driven abundance combinations		
 	test_curated2 <- data.frame(
-		F2P = test_curated1$p__Firmicutes / test_curated1$p__Bacteroidetes,
+		F2P = test_curated1$p__Firmicutes / ( test_curated1$p__Bacteroidetes + 0.0001), # Add small systematic epsilon to avoid division by zero
 		Atherosclerosis = test_curated1$g__Lactobacillus - test_curated1$g__Roseburia,
 		HF = test_curated1$s__Escherichia_coli - test_curated1$s__Klebsiella_pneumonia,
 		CKD = test_curated1$p__Firmicutes + test_curated1$p__Proteobacteria + test_curated1$p__Actinobacteria,
@@ -289,25 +289,55 @@ model <- function(
 	# Add interactions
 	test_curated2 <- cbind(test_curated2, interact.all(test_curated2))
 			
-	# Add Firmicutes to Bacteroidetes to clinical phenodata due to potential interactions with phenodata
-	train_clin[,"F2P"] <- train_curated1[,"p__Firmicutes"] / train_curated1[,"p__Bacteroidetes"]
-	test_clin[,"F2P"] <- test_curated1[,"p__Firmicutes"] / test_curated1[,"p__Bacteroidetes"]
+	# Add Firmicutes to Bacteroidetes to clinical phenodata due to potential interesting interactions with phenodata
+	train_clin[,"F2P"] <- train_curated1[,"p__Firmicutes"] / ( train_curated1[,"p__Bacteroidetes"] + 0.0001) # Add small systematic epsilon to avoid division by zero
+	test_clin[,"F2P"] <- test_curated1[,"p__Firmicutes"] / ( test_curated1[,"p__Bacteroidetes"] + 0.0001) # Add small systematic epsilon to avoid division by zero
+
+	# Add categorized versions of the few select continuous phenodata
+	# BMI categorized
+	train_clin[,"BMICat"] <- findInterval(train_clin$BodyMassIndex, c(-Inf, 25, 30, Inf))
+	test_clin[,"BMICat"] <- findInterval(test_clin$BodyMassIndex, c(-Inf, 25, 30, Inf))
+	# Age categorized
+	train_clin[,"AgeCat"] <- findInterval(train_clin$Age, c(-Inf, 50, 65, 80, Inf))
+	test_clin[,"AgeCat"] <- findInterval(test_clin$Age, c(-Inf, 50, 65, 80, Inf))
+	# Systolic Blood Pressure categorized
+	train_clin[,"SysBPCat"] <- findInterval(train_clin$SystolicBP, c(-Inf, 130, 150, 180, Inf))
+	test_clin[,"SysBPCat"] <- findInterval(test_clin$SystolicBP, c(-Inf, 130, 150, 180, Inf))
+	# Binary identifiers (particularly for interaction effects that may interact with sex and BMI 
+	# Normal weight Male specific identifier
+	train_clin[,"NormalMale"] <- as.numeric(train_clin$BodyMassIndex > 18 & train_clin$BodyMassIndex < 25 & train_clin$Sex == 1)
+	test_clin[,"NormalMale"] <- as.numeric(test_clin$BodyMassIndex > 18 & test_clin$BodyMassIndex < 25 & test_clin$Sex == 1)
+	# Over-weight Male specific identifier
+	train_clin[,"OverweightMale"] <- as.numeric(train_clin$BodyMassIndex >= 25 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 1)
+	test_clin[,"OverweightMale"] <- as.numeric(test_clin$BodyMassIndex >= 25 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 1)
+	# Obese Male specific identifier
+	train_clin[,"ObeseMale"] <- as.numeric(train_clin$BodyMassIndex >= 30 & train_clin$Sex == 1)
+	test_clin[,"ObeseMale"] <- as.numeric(test_clin$BodyMassIndex >= 30 & test_clin$Sex == 1)
+	# Normal weight Female specific identifier
+	train_clin[,"NormalFemale"] <- as.numeric(train_clin$BodyMassIndex > 18 & train_clin$BodyMassIndex < 25 & train_clin$Sex == 0)
+	test_clin[,"NormalFemale"] <- as.numeric(test_clin$BodyMassIndex > 18 & test_clin$BodyMassIndex < 25 & test_clin$Sex == 0)
+	# Over-weight Female specific identifier
+	train_clin[,"OverweightFemale"] <- as.numeric(train_clin$BodyMassIndex >= 25 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 0)
+	test_clin[,"OverweightFemale"] <- as.numeric(test_clin$BodyMassIndex >= 25 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 0)
+	# Obese Female specific identifier
+	train_clin[,"ObeseFemale"] <- as.numeric(train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0)
+	test_clin[,"ObeseFemale"] <- as.numeric(test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0)
 
 	# Create shifted & z-scored clinical variables, with all pairwise interactions incorporated
-	train_clin2a <- apply(train_clin[,-which(colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=shift)
-	train_clin2b <- apply(train_clin[,-which(colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=zscale)
+	train_clin2a <- apply(train_clin[,which(!colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=shift)
+	train_clin2b <- apply(train_clin[,which(!colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=zscale)
 	colnames(train_clin2a) <- paste0("s_", colnames(train_clin2a))
 	colnames(train_clin2b) <- paste0("z_", colnames(train_clin2b))
 	train_clin2 <- cbind(train_clin2a, train_clin2b, interact.all(train_clin2a), interact.all(train_clin2b))
 
-	test_clin2a <- apply(test_clin[,-which(colnames(test_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=shift)
-	test_clin2b <- apply(test_clin[,-which(colnames(test_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=zscale)
+	test_clin2a <- apply(test_clin[,which(!colnames(test_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=shift)
+	test_clin2b <- apply(test_clin[,which(!colnames(test_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=zscale)
         colnames(test_clin2a) <- paste0("s_", colnames(test_clin2a))
         colnames(test_clin2b) <- paste0("z_", colnames(test_clin2b))	
 	test_clin2 <- cbind(test_clin2a, test_clin2b, interact.all(test_clin2a), interact.all(test_clin2b))
 
 	# Omit combinations that produce NaN
-	train_clin2 <- train_clin2[,-which(apply(train_clin2, MARGIN=2, FUN=\(x){ any(!is.finite(x)) }))]
+	train_clin2 <- train_clin2[,which(!apply(train_clin2, MARGIN=2, FUN=\(x){ any(!is.finite(x)) }))]
 	# Keep same columns
 	test_clin2 <- test_clin2[,colnames(train_clin2)]
 
@@ -421,6 +451,8 @@ model <- function(
 		pip(test_phyloseq, level = "Phylum")
 	))	
 
+	# Omit rows in train_relabus / test_relabus where over 50% of the samples consist of a single value
+
 	## Modular modelling of risk
 	# Generic use module training with glmnet 10-fold CV
 	# ... or other generic use of L1 (LASSO) with possibility to incorporate L2-norm as well via alpha
@@ -428,10 +460,9 @@ model <- function(
 		trainx,
                 trainy,
 		testx,
-		debug = FALSE, # If debug output is needed		
 		...
 	){
-		# Omit samples with NAs
+		# Omit training samples with NAs for response
 		trainx <- trainx[which(!is.na(trainy)),]
 		trainy <- trainy[which(!is.na(trainy))]
 
@@ -441,9 +472,12 @@ model <- function(
 		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox", type.measure = "C", alpha = 1)
 
 		print("lambda.1se, non-zero coefs:")			
-		print(colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]])
-		#print("lambda.min")
-		#print(predict(fit, s = cv$lambda.min, type = "nonzero"))
+		#print(colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]])
+		print(cbind(
+			Variable = colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]],
+			Coef = predict(fit, s = cv$lambda.1se, type = "coefficient")[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]]
+			)
+		)
 
 		# Submission 5 was a test for the less conservative $lambda.min, reverting back to more conservative $lambda.1se
 		if(v == 5){
@@ -458,7 +492,6 @@ model <- function(
 	# Part Ia: Training data, individual modules
 	catsystime("Pt Ia")	
 	catsystime("module_agesex")
-	#ensemble_temp[,"module_agesex"] <- module_agesex(train = train_clin, test = train_clin)
 	ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = train_clin)
 	catsystime("module_metamix")
 	ensemble_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = train_clin2)
@@ -477,13 +510,12 @@ model <- function(
 	catsystime("module_curated2_glmnet")
 	ensemble_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = train_curated2)
 
-	#print("Ensemble head")
-	#print(head(ensemble_temp))
+	print("Ensemble head")
+	print(head(ensemble_temp))
 
 	# Part Ib: Test data, individual modules
 	catsystime("Pt Ib")
 	catsystime("module_agesex")
-	#output_temp[,"module_agesex"] <- module_agesex(train = train_clin, test = test_clin)
 	output_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
 	catsystime("module_metamix")
 	output_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = test_clin2)
@@ -502,8 +534,8 @@ model <- function(
 	catsystime("module_curated2_glmnet")
 	output_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
 		
-	#print("Temp output head")
-	#print(head(output_temp))
+	print("Temp output head")
+	print(head(output_temp))
 
 	# Part II: Find coefficients that maximize ensemble modules' linear sum for coxph in training data
 	#catsystime("Pt II")	
@@ -707,27 +739,29 @@ dir.create(file.path(PARAM$folder.R, paste0("DenverFINRISKHacky_", subname),"out
 PARAM$folder.data <- paste0(PARAM$folder.R, "/")
 PARAM$folder.result <- paste0(PARAM$folder.data, paste0("DenverFINRISKHacky_", subname), "/output/")
 
+# 27th Jan note for final submissions; directory structures have been changed again, with /test/ omitted completely based on a Wiki edit on 25th Jan to https://www.synapse.org/#!Synapse:syn27130803/wiki/620471
+
 ## Final submission;
 # Training data is the combined old 'training' + 'test' to maximize amount of training samples
 # New 'test' data is the 'scoring' data
 
 # Pheno data (both meta as well as response)
-#test_p <- read.csv(file = paste0(PARAM$folder.data, "test/pheno_test.csv"), row.names=1)
-#train_p <- read.csv(file = paste0(PARAM$folder.data, "train/pheno_training.csv"), row.names=1)
 test_p <- read.csv(file = paste0(PARAM$folder.data, "scoring/pheno_scoring.csv"), row.names=1) # -> to scoring
-train1_p <- read.csv(file = paste0(PARAM$folder.data, "train/pheno_training.csv"), row.names=1)
-train2_p <- read.csv(file = paste0(PARAM$folder.data, "test/pheno_test.csv"), row.names=1)
+train_p <- read.csv(file = paste0(PARAM$folder.data, "train/pheno_training.csv"), row.names=1)
+#train1_p <- read.csv(file = paste0(PARAM$folder.data, "train/pheno_training.csv"), row.names=1)
+#train2_p <- read.csv(file = paste0(PARAM$folder.data, "test/pheno_test.csv"), row.names=1)
 
 # Combine old train + test
-train_p <- rbind(train1_p, train2_p)
+#train_p <- rbind(train1_p, train2_p)
 
 # Read count raw data
 test_r <- read.csv(file = paste0(PARAM$folder.data, "scoring/readcounts_scoring.csv"), row.names=1) # -> to scoring
-train1_r <- read.csv(file = paste0(PARAM$folder.data, "train/readcounts_training.csv"), row.names=1)
-train2_r <- read.csv(file = paste0(PARAM$folder.data, "test/readcounts_test.csv"), row.names=1)
+train_r <- read.csv(file = paste0(PARAM$folder.data, "train/readcounts_training.csv"), row.names=1)
+#train1_r <- read.csv(file = paste0(PARAM$folder.data, "train/readcounts_training.csv"), row.names=1)
+#train2_r <- read.csv(file = paste0(PARAM$folder.data, "test/readcounts_test.csv"), row.names=1)
 
 # Combine old train + test
-train_r <- cbind(train1_r, train2_r)
+#train_r <- cbind(train1_r, train2_r)
 
 # Read taxa along with raw reads and metadata into a phyloseq object
 test_phylo <- csv2phylo(
@@ -735,19 +769,23 @@ test_phylo <- csv2phylo(
 	taxonomy.file=paste0(PARAM$folder.data, "scoring/taxtable.csv"), # -> to scoring
 	metadata.file=paste0(PARAM$folder.data, "scoring/pheno_scoring.csv") # -> to scoring
 )
-train1_phylo <- csv2phylo(
+train_phylo <- csv2phylo(
 	otu.file=paste0(PARAM$folder.data, "train/readcounts_training.csv"), 
 	taxonomy.file=paste0(PARAM$folder.data, "train/taxtable.csv"),
 	metadata.file=paste0(PARAM$folder.data, "train/pheno_training.csv")
 )
-train2_phylo <- csv2phylo(
-        otu.file=paste0(PARAM$folder.data, "test/readcounts_test.csv"), 
-        taxonomy.file=paste0(PARAM$folder.data, "test/taxtable.csv"),
-        metadata.file=paste0(PARAM$folder.data, "test/pheno_test.csv")
-)
+#train1_phylo <- csv2phylo(
+#	otu.file=paste0(PARAM$folder.data, "train/readcounts_training.csv"), 
+#	taxonomy.file=paste0(PARAM$folder.data, "train/taxtable.csv"),
+#	metadata.file=paste0(PARAM$folder.data, "train/pheno_training.csv")
+#)
+#train2_phylo <- csv2phylo(
+#        otu.file=paste0(PARAM$folder.data, "test/readcounts_test.csv"), 
+#        taxonomy.file=paste0(PARAM$folder.data, "test/taxtable.csv"),
+#        metadata.file=paste0(PARAM$folder.data, "test/pheno_test.csv")
+#)
 # Merge phyloseq objects
-train_phylo <- phyloseq::merge_phyloseq(train1_phylo, train2_phylo)
-
+#train_phylo <- phyloseq::merge_phyloseq(train1_phylo, train2_phylo)
 
 # Run model and obtain scores result
 res <- model(
