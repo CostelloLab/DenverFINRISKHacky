@@ -325,32 +325,6 @@ model <- function(
 	train_clin[,"ObeseFemale"] <- as.numeric(train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0)
 	test_clin[,"ObeseFemale"] <- as.numeric(test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0)
 
-	# Tri-binarized categorical vars
-	# Senior vs. Junior defined at 60 years cutoff
-	# Obese vs. Nonobese defined at BMI >= 30
-	# Male vs. Female defined by Sex == 1 for male as per challenge
-	# Combine these with microbiome relative abundances for HF prediction
-	train_tricomb <- data.frame(
-		SeniorObeseMale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 1) 
-		JuniorObeseMale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 1)
-		SeniorObeseFemale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0)
-		JuniorObeseFemale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0)
-		SeniorNonobeseMale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 1)
-		JuniorNonobeseMale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 1)
-		SeniorNonobeseFemale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 0)
-		JuniorNonobeseFemale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 0)
-	)
-        test_tricomb <- data.frame(
-                SeniorObeseMale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 1)
-                JuniorObeseMale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 1)
-                SeniorObeseFemale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0)
-                JuniorObeseFemale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0)
-                SeniorNonobeseMale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 1)
-                JuniorNonobeseMale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 1)
-                SeniorNonobeseFemale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 0)
-                JuniorNonobeseFemale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 0)
-        )
-
 	# Create shifted & z-scored clinical variables, with all pairwise interactions incorporated
 	train_clin2a <- apply(train_clin[,which(!colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=shift)
 	train_clin2b <- apply(train_clin[,which(!colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=zscale)
@@ -480,6 +454,48 @@ model <- function(
 		pip(test_phyloseq, level = "Phylum")
 	))	
 
+	# Tri-binarized categorical vars
+	# Senior vs. Junior defined at 60 years cutoff
+	# Obese vs. Nonobese defined at BMI >= 30
+	# Male vs. Female defined by Sex == 1 for male as per challenge
+	# Combine these with microbiome relative abundances for HF prediction
+	train_tricomb <- data.frame(
+		SeniorObeseMale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 1), 
+		JuniorObeseMale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 1),
+		SeniorObeseFemale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0),
+		JuniorObeseFemale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0),
+		SeniorNonobeseMale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 1),
+		JuniorNonobeseMale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 1),
+		SeniorNonobeseFemale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 0),
+		JuniorNonobeseFemale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 0)
+	)
+        test_tricomb <- data.frame(
+                SeniorObeseMale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 1),
+                JuniorObeseMale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 1),
+                SeniorObeseFemale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0),
+                JuniorObeseFemale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0),
+                SeniorNonobeseMale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 1),
+                JuniorNonobeseMale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 1),
+                SeniorNonobeseFemale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 0),
+                JuniorNonobeseFemale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 0)
+        )
+
+	catsystime("Training trinary stratified Family-taxa relative abundances...")
+	
+	train_tri <- cbind(train_tricomb, 
+		t(pip(train_phyloseq, level = "Family"))
+	)
+	
+	train_tri <- interact.part(train_tri, first = colnames(train_tri)[1:ncol(train_tricomb)], second = colnames(train_tri)[(ncol(train_tricomb)+1):ncol(train_tri)])
+
+	catsystime("Test trinary stratified Family-taxa relative abundances...")
+
+	test_tri <- cbind(test_tricomb, 
+		t(pip(test_phyloseq, level = "Family"))
+	)
+	
+	test_tri <- interact.part(test_tri, first = colnames(test_tri)[1:ncol(test_tricomb)], second = colnames(test_tri)[(ncol(test_tricomb)+1):ncol(test_tri)])
+
 	# Omit rows in train_relabus / test_relabus where over 50% of the samples consist of a single value
 
 	## Modular modelling of risk
@@ -549,6 +565,8 @@ model <- function(
 		ensemble_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = train_curated1)
 		catsystime("module_curated2_glmnet")
 		ensemble_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = train_curated2)
+		catsystime("module_trinaryfamily_glmnet")
+		ensemble_temp[,"module_trinaryfamily_glmnet"] <- module_glmnet(trainx = train_tri, trainy = train_y, test = train_tri)
 
 		print("Ensemble head")
 		print(head(ensemble_temp))
@@ -573,6 +591,8 @@ model <- function(
 		output_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = test_curated1)
 		catsystime("module_curated2_glmnet")
 		output_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
+		catsystime("module_trinaryfamily_glmnet")
+		output_temp[,"module_trinaryfamily_glmnet"] <- module_glmnet(trainx = train_tri, trainy = train_y, test = test_tri)
 			
 		print("Temp output head")
 		print(head(output_temp))
@@ -601,7 +621,7 @@ model <- function(
 	}))
 
 	# Head of scores over different seeds
-	print("Scores across seeds")
+	print("Scores head across random seeds")
 	print(head(scores))		
 	output_final[,"Score"] <- apply(scores, MARGIN=1, FUN=mean) # Take mean across predicted scores across random seeds		
 
@@ -686,7 +706,7 @@ inormal <- function(x)
   qnorm((rank(x, na.last = "keep") - 0.5) / sum(!is.na(x)))
 }
 
-## Take all pairwise interactions and create derived variables
+## Take all pairwise interactions and create derived variables, and pairwise interactions from two data matrices
 #
 # From old code: https://github.com/Syksy/ePCR/blob/master/R/int.R
 interact.all <- function(input){
@@ -694,6 +714,16 @@ interact.all <- function(input){
 		do.call("cbind", lapply(z:ncol(input), FUN=function(x){
 			tmp <- data.frame(input[,z] * input[,x])
 			colnames(tmp)[1] <- paste(colnames(input)[z], "x", colnames(input)[x], sep="") 
+			tmp
+		}))
+	}))
+	output
+}
+interact.part <- function(input, first, second){
+	output <- do.call("cbind", lapply(first, FUN=function(z){ 
+		do.call("cbind", lapply(second, FUN=function(x){
+			tmp <- data.frame(input[,z] * input[,x])
+			colnames(tmp)[1] <- paste(z, "x", x, sep="") 
 			tmp
 		}))
 	}))
@@ -822,7 +852,8 @@ res <- model(
 	test_micr = test_r, # Testing microbiome raw read counts
 	train_phyloseq = train_phylo, # Training phyloseq object
 	test_phyloseq = test_phylo, # Train phyloseq object
-	v = subv # Submission version
+	v = subv, # Submission version
+	seeds = 1:5 # Vector of random seeds to alleviate random binning effects, used for multiple runs
 )
 
 # Write the resulting scores.csv
