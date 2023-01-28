@@ -32,13 +32,17 @@ model <- function(
 	test_phyloseq,
 	# Which model submission version to use 
 	v,
+	# Alpha 'a', which controls the ratio of L1 (LASSO, a=1) to L2 (RR, a=0) regularization
+	a = 0.5,
 	# Additional parameters
-	seed = 1, # RNG seed for reproducibility
+	# Run across multiple seeds
+	seeds = 1:5, # RNG seed for reproducibility
 	...
 ){
+
 	# Small system time print function to help track runtimes; checking that the runtimes stay reasonable in a small-scale Ubuntu 22.04 LTS VM
 	catsystime <- \(x){
-		cat("Current system time\n")
+		cat("\nCurrent system time\n")
 		if(!missing(x)) cat(paste("Current step:", x, "\n"))
 		cat(as.character(Sys.time()))
 		cat("\n\n")
@@ -47,8 +51,6 @@ model <- function(
 	catsystime("Start")
 	start_time <- Sys.time()
 
-	# Set seed for reproducibility
-	set.seed(seed)
 	# Start constructing the output df which will be output as csv
 	output_temp <- data.frame(SampleID = rownames(test_clin))
 	output_final <- data.frame(SampleID = rownames(test_clin), Score = 0)
@@ -98,7 +100,7 @@ model <- function(
 	test_clin[,"AgeNlogNshift"] <- nlognshift(test_clin[,"Age"])
 
 	# Literature or other source curated & weighted information on possibly interesting microbiome markers / phenodata
-	catsystime("Creating curated module data...")
+	catsystime("Creating abundance & curated module data...")
 	
 	# Species
 	train_abuspecies <- microbiome::abundances(microbiome::aggregate_taxa(train_phyloseq, level = "Species"), transform="compositional")
@@ -214,7 +216,7 @@ model <- function(
 	# Increased relabu in patients: Prevotella (genus), Hungatella (genus), Succiniclasticum (genus)
 	# Decreased relabu in patients: Lachnospiracea (family), Ruminococcaceae: Faecalibacterium (genus), Bifidobacteriaceae: Bifidobacterium (genus)
 	#
-	# > B/F ratio
+	# > B/F ratio (or F/B)
 
 	# Bacteroidetes to Firmicutes ratio appears multiple times, appears notable in multiple contexts as a marker for dysbiosis
 	# Taxa greps mostly included also plasmid variants, collapsing them together
@@ -323,6 +325,32 @@ model <- function(
 	train_clin[,"ObeseFemale"] <- as.numeric(train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0)
 	test_clin[,"ObeseFemale"] <- as.numeric(test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0)
 
+	# Tri-binarized categorical vars
+	# Senior vs. Junior defined at 60 years cutoff
+	# Obese vs. Nonobese defined at BMI >= 30
+	# Male vs. Female defined by Sex == 1 for male as per challenge
+	# Combine these with microbiome relative abundances for HF prediction
+	train_tricomb <- data.frame(
+		SeniorObeseMale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 1) 
+		JuniorObeseMale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 1)
+		SeniorObeseFemale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0)
+		JuniorObeseFemale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex >= 30 & train_clin$Sex == 0)
+		SeniorNonobeseMale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 1)
+		JuniorNonobeseMale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 1)
+		SeniorNonobeseFemale = as.numeric(train_clin$Age >= 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 0)
+		JuniorNonobeseFemale = as.numeric(train_clin$Age < 60 & train_clin$BodyMassIndex < 30 & train_clin$Sex == 0)
+	)
+        test_tricomb <- data.frame(
+                SeniorObeseMale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 1)
+                JuniorObeseMale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 1)
+                SeniorObeseFemale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0)
+                JuniorObeseFemale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex >= 30 & test_clin$Sex == 0)
+                SeniorNonobeseMale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 1)
+                JuniorNonobeseMale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 1)
+                SeniorNonobeseFemale = as.numeric(test_clin$Age >= 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 0)
+                JuniorNonobeseFemale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 0)
+        )
+
 	# Create shifted & z-scored clinical variables, with all pairwise interactions incorporated
 	train_clin2a <- apply(train_clin[,which(!colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=shift)
 	train_clin2b <- apply(train_clin[,which(!colnames(train_clin) %in% c("Event", "Event_time"))], MARGIN=2, FUN=zscale)
@@ -404,21 +432,22 @@ model <- function(
 
         # Collapse raw reads on suitable phyla level, filter, inverse normal rank transformation, and pick correct columns
         # genus
-        catsystime("Collapsing genus...")
-        train_g <- collapseMicrobiome(x = t(train_micr), strata = "g") |>
-                filterMicrobiome() |>
-                (\(x) { apply(x, MARGIN=2, FUN=inormal) })()
-        test_g <- collapseMicrobiome(x = t(test_micr), strata = "g") |>
-                (\(x) { x[,colnames(train_g)] })() |>
-                (\(x) { apply(x, MARGIN=2, FUN=inormal) })()
+	## Omitted from final submission, instead relying on the microbiome/mia-packackage (relative) abundances
+        #catsystime("Collapsing genus...")
+        #train_g <- collapseMicrobiome(x = t(train_micr), strata = "g") |>
+        #        filterMicrobiome() |>
+        #        (\(x) { apply(x, MARGIN=2, FUN=inormal) })()
+        #test_g <- collapseMicrobiome(x = t(test_micr), strata = "g") |>
+        #        (\(x) { x[,colnames(train_g)] })() |>
+        #        (\(x) { apply(x, MARGIN=2, FUN=inormal) })()
         # family
-        catsystime("Collapsing family...")
-        train_f <- collapseMicrobiome(x = t(train_micr), strata = "f") |>
-                filterMicrobiome() |>
-                (\(x) { apply(x, MARGIN=2, FUN=inormal) })()
-        test_f <- collapseMicrobiome(x = t(test_micr), strata = "f") |>
-                (\(x) { x[,colnames(train_f)] })() |>
-                (\(x) { apply(x, MARGIN=2, FUN=inormal) })()
+        #catsystime("Collapsing family...")
+        #train_f <- collapseMicrobiome(x = t(train_micr), strata = "f") |>
+        #        filterMicrobiome() |>
+        #        (\(x) { apply(x, MARGIN=2, FUN=inormal) })()
+        #test_f <- collapseMicrobiome(x = t(test_micr), strata = "f") |>
+        #        (\(x) { x[,colnames(train_f)] })() |>
+        #        (\(x) { apply(x, MARGIN=2, FUN=inormal) })()
 
 	# Test mia/microbiome packages' suggested approaches
 	#print("Using previously generated TreeSummarizedExperiment-objects to extract variables on multiple levels...")
@@ -467,17 +496,23 @@ model <- function(
 		trainy <- trainy[which(!is.na(trainy))]
 
 		# Fit, CV, predict
-		# sub >=6; changing type.measure to C-index, LASSO alpha == 1 to Elastic Net alpha == 0.5
-		fit <- glmnet(x = as.matrix(trainx), y = trainy, family = "cox", alpha = 1)
-		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox", type.measure = "C", alpha = 1)
+		# sub >=6; changing type.measure to C-index, LASSO alpha == 1 to Elastic Net alpha == 0.5; alpha 'a' given as global parameter in main model function
+		fit <- glmnet(x = as.matrix(trainx), y = trainy, family = "cox", alpha = a)
+		cv <- cv.glmnet(x = as.matrix(trainx), y = trainy, family = "cox", type.measure = "C", alpha = a)
 
-		print("lambda.1se, non-zero coefs:")			
-		#print(colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]])
-		print(cbind(
-			Variable = colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]],
-			Coef = predict(fit, s = cv$lambda.1se, type = "coefficient")[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]]
+		vars <- colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]]
+
+		if(!is.null(vars) & length(vars)>0){
+			print("lambda.1se, non-zero coefs:")			
+			#print(colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]])
+			print(cbind(
+				Variable = colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]],
+				Coef = predict(fit, s = cv$lambda.1se, type = "coefficient")[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]]
+				)
 			)
-		)
+		}else{
+			print("All coefficients shrunk to zero.")
+		}
 
 		# Submission 5 was a test for the less conservative $lambda.min, reverting back to more conservative $lambda.1se
 		if(v == 5){
@@ -489,81 +524,97 @@ model <- function(
 		pred[,1]
 	}
 
-	# Part Ia: Training data, individual modules
-	catsystime("Pt Ia")	
-	catsystime("module_agesex")
-	ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = train_clin)
-	catsystime("module_metamix")
-	ensemble_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = train_clin2)
-	catsystime("module_genus_glmnet")
-	ensemble_temp[,"module_genus_glmnet"] <- module_glmnet(trainx = train_g, trainy = train_y, test = train_g)
-	catsystime("module_family_glmnet")
-	ensemble_temp[,"module_family_glmnet"] <- module_glmnet(trainx = train_f, trainy = train_y, test = train_f)
-	catsystime("module_alpha_glmnet")
-	ensemble_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = train_alpha)
-	catsystime("module_beta_glmnet")
-	ensemble_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = train_beta)
-	catsystime("module_relabus_glmnet")
-	ensemble_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = train_relabus)
-	catsystime("module_curated1_glmnet")
-	ensemble_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = train_curated1)
-	catsystime("module_curated2_glmnet")
-	ensemble_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = train_curated2)
+	# Run across multiple RNG seeds to alleviate random binning effects
+	scores <- do.call("cbind", lapply(seeds, FUN=\(s){
+		set.seed(s)
+		catsystime(paste("\n\nRunning model CVs, with seed", s, "and alpha", a, "\n\n"))	
 
-	print("Ensemble head")
-	print(head(ensemble_temp))
+		# Part Ia: Training data, individual modules
+		catsystime("Pt Ia")	
+		catsystime("module_agesex")
+		ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = train_clin)
+		catsystime("module_metamix")
+		ensemble_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = train_clin2)
+		#catsystime("module_genus_glmnet")
+		#ensemble_temp[,"module_genus_glmnet"] <- module_glmnet(trainx = train_g, trainy = train_y, test = train_g)
+		#catsystime("module_family_glmnet")
+		#ensemble_temp[,"module_family_glmnet"] <- module_glmnet(trainx = train_f, trainy = train_y, test = train_f)
+		catsystime("module_alpha_glmnet")
+		ensemble_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = train_alpha)
+		catsystime("module_beta_glmnet")
+		ensemble_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = train_beta)
+		catsystime("module_relabus_glmnet")
+		ensemble_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = train_relabus)
+		catsystime("module_curated1_glmnet")
+		ensemble_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = train_curated1)
+		catsystime("module_curated2_glmnet")
+		ensemble_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = train_curated2)
 
-	# Part Ib: Test data, individual modules
-	catsystime("Pt Ib")
-	catsystime("module_agesex")
-	output_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
-	catsystime("module_metamix")
-	output_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = test_clin2)
-	catsystime("module_genus_glmnet")
-	output_temp[,"module_genus_glmnet"] <- module_glmnet(trainx = train_g, trainy = train_y, test = test_g)
-	catsystime("module_family_glmnet")
-	output_temp[,"module_family_glmnet"] <- module_glmnet(trainx = train_f, trainy = train_y, test = test_f)
-	catsystime("module_alpha_glmnet")
-	output_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = test_alpha)
-	catsystime("module_beta_glmnet")
-	output_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = test_beta)
-	catsystime("module_relabus_glmnet")
-	output_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = test_relabus)
-	catsystime("module_curated1_glmnet")
-	output_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = test_curated1)
-	catsystime("module_curated2_glmnet")
-	output_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
-		
-	print("Temp output head")
-	print(head(output_temp))
+		print("Ensemble head")
+		print(head(ensemble_temp))
 
-	# Part II: Find coefficients that maximize ensemble modules' linear sum for coxph in training data
-	#catsystime("Pt II")	
+		# Part Ib: Test data, individual modules
+		catsystime("Pt Ib")
+		catsystime("module_agesex")
+		output_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
+		catsystime("module_metamix")
+		output_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = test_clin2)
+		#catsystime("module_genus_glmnet")
+		#output_temp[,"module_genus_glmnet"] <- module_glmnet(trainx = train_g, trainy = train_y, test = test_g)
+		#catsystime("module_family_glmnet")
+		#output_temp[,"module_family_glmnet"] <- module_glmnet(trainx = train_f, trainy = train_y, test = test_f)
+		catsystime("module_alpha_glmnet")
+		output_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = test_alpha)
+		catsystime("module_beta_glmnet")
+		output_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = test_beta)
+		catsystime("module_relabus_glmnet")
+		output_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = test_relabus)
+		catsystime("module_curated1_glmnet")
+		output_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = test_curated1)
+		catsystime("module_curated2_glmnet")
+		output_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
+			
+		print("Temp output head")
+		print(head(output_temp))
 
-	# Submissions 1-3 were not penalized Cox ensembles
-	if(v < 4){
-		print("Regularized derived features combined into Cox PH")
-		ensemble_cox <- coxph(Surv(event = Event, time = Event_time) ~ module_agesex + module_metamix + module_genus_glmnet + module_family_glmnet + module_alpha_glmnet + module_beta_glmnet, data = ensemble_temp)
-		print("Identified ensemble coefficients (coxph)")
-		print(summary(ensemble_cox))
+		# Submissions 1-3 were not penalized Cox ensembles
+		if(v < 4){
+			print("Regularized derived features combined into Cox PH")
+			ensemble_cox <- coxph(Surv(event = Event, time = Event_time) ~ module_agesex + module_metamix + module_genus_glmnet + module_family_glmnet + module_alpha_glmnet + module_beta_glmnet, data = ensemble_temp)
+			print("Identified ensemble coefficients (coxph)")
+			print(summary(ensemble_cox))
 
-		# Part III: Construct the predicted test data score as a combination of weighted ensemble components
-		# Combine modules to final output
-		print("Pt III")
-		output_final[,"Score"] <- predict(ensemble_cox, newdata = output_temp)	
-	# Submissions 4+ testing penalized Cox ensembles (nested basically); sub 4 is more conservative with lambda.1se, sub 5 is lambda.min
-	}else{
-		catsystime("-- Final modules to include, nested regularization --")
-		#print("Nested regularization")
-		w1 <- grep("module", colnames(ensemble_temp), value = TRUE)
-		w2 <- grep("module", colnames(output_temp), value = TRUE)
-		output_final[,"Score"] <- module_glmnet(trainx = ensemble_temp[,w1], trainy = train_y, test = output_temp[,w2])
-	}		
-		
+			# Part III: Construct the predicted test data score as a combination of weighted ensemble components
+			# Combine modules to final output
+			print("Pt III")
+			output_final[,"Score"] <- predict(ensemble_cox, newdata = output_temp)	
+		# Submissions 4+ testing penalized Cox ensembles (nested basically); sub 4 is more conservative with lambda.1se, sub 5 is lambda.min
+		}else{
+			catsystime("-- Final modules to include, nested regularization --")
+			#print("Nested regularization")
+			w1 <- grep("module", colnames(ensemble_temp), value = TRUE)
+			w2 <- grep("module", colnames(output_temp), value = TRUE)
+			#output_final[,"Score"] <- module_glmnet(trainx = ensemble_temp[,w1], trainy = train_y, test = output_temp[,w2])
+			# Return scores from this particular seed; standardize output via z-scores
+			zscale(module_glmnet(trainx = ensemble_temp[,w1], trainy = train_y, test = output_temp[,w2]))
+		}
+	}))
+
+	# Head of scores over different seeds
+	print("Scores across seeds")
+	print(head(scores))		
+	output_final[,"Score"] <- apply(scores, MARGIN=1, FUN=mean) # Take mean across predicted scores across random seeds		
+
+	print("Score means head")
+	print(head(output_final))
+
 	# Scale within [0,1] as instructed
 	# From instructions: "The predictions have to be between 0 and 1, with larger numbers 
 	# being associated with higher likelihood of having HF"
 	output_final[,"Score"] <- outscale(output_final[,"Score"])
+
+	print("Score head after scaling [0,1]")
+	print(head(output_final))
 
 	# Runtime sanity checking
 	diff_time <- Sys.time() - start_time
@@ -739,29 +790,17 @@ dir.create(file.path(PARAM$folder.R, paste0("DenverFINRISKHacky_", subname),"out
 PARAM$folder.data <- paste0(PARAM$folder.R, "/")
 PARAM$folder.result <- paste0(PARAM$folder.data, paste0("DenverFINRISKHacky_", subname), "/output/")
 
-# 27th Jan note for final submissions; directory structures have been changed again, with /test/ omitted completely based on a Wiki edit on 25th Jan to https://www.synapse.org/#!Synapse:syn27130803/wiki/620471
-
 ## Final submission;
-# Training data is the combined old 'training' + 'test' to maximize amount of training samples
+# Training data is the old 'training'
 # New 'test' data is the 'scoring' data
 
 # Pheno data (both meta as well as response)
 test_p <- read.csv(file = paste0(PARAM$folder.data, "scoring/pheno_scoring.csv"), row.names=1) # -> to scoring
 train_p <- read.csv(file = paste0(PARAM$folder.data, "train/pheno_training.csv"), row.names=1)
-#train1_p <- read.csv(file = paste0(PARAM$folder.data, "train/pheno_training.csv"), row.names=1)
-#train2_p <- read.csv(file = paste0(PARAM$folder.data, "test/pheno_test.csv"), row.names=1)
-
-# Combine old train + test
-#train_p <- rbind(train1_p, train2_p)
 
 # Read count raw data
 test_r <- read.csv(file = paste0(PARAM$folder.data, "scoring/readcounts_scoring.csv"), row.names=1) # -> to scoring
 train_r <- read.csv(file = paste0(PARAM$folder.data, "train/readcounts_training.csv"), row.names=1)
-#train1_r <- read.csv(file = paste0(PARAM$folder.data, "train/readcounts_training.csv"), row.names=1)
-#train2_r <- read.csv(file = paste0(PARAM$folder.data, "test/readcounts_test.csv"), row.names=1)
-
-# Combine old train + test
-#train_r <- cbind(train1_r, train2_r)
 
 # Read taxa along with raw reads and metadata into a phyloseq object
 test_phylo <- csv2phylo(
@@ -774,18 +813,6 @@ train_phylo <- csv2phylo(
 	taxonomy.file=paste0(PARAM$folder.data, "train/taxtable.csv"),
 	metadata.file=paste0(PARAM$folder.data, "train/pheno_training.csv")
 )
-#train1_phylo <- csv2phylo(
-#	otu.file=paste0(PARAM$folder.data, "train/readcounts_training.csv"), 
-#	taxonomy.file=paste0(PARAM$folder.data, "train/taxtable.csv"),
-#	metadata.file=paste0(PARAM$folder.data, "train/pheno_training.csv")
-#)
-#train2_phylo <- csv2phylo(
-#        otu.file=paste0(PARAM$folder.data, "test/readcounts_test.csv"), 
-#        taxonomy.file=paste0(PARAM$folder.data, "test/taxtable.csv"),
-#        metadata.file=paste0(PARAM$folder.data, "test/pheno_test.csv")
-#)
-# Merge phyloseq objects
-#train_phylo <- phyloseq::merge_phyloseq(train1_phylo, train2_phylo)
 
 # Run model and obtain scores result
 res <- model(
