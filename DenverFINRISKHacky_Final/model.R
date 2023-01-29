@@ -902,7 +902,7 @@ res <- model(
 	train_phyloseq = train_phylo, # Training phyloseq object
 	test_phyloseq = test_phylo, # Train phyloseq object
 	v = subv, # Submission version
-	seeds = 7:9 # Vector of random seeds to alleviate random binning effects, used for multiple runs
+	seeds = 1:10 # Vector of random seeds to alleviate random binning effects, used for multiple runs
 )
 
 # Write the resulting scores.csv
