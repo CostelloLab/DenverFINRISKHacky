@@ -431,7 +431,7 @@ model <- function(
 	# Test mia/microbiome packages' suggested approaches
 	#print("Using previously generated TreeSummarizedExperiment-objects to extract variables on multiple levels...")
 	catsystime("TreeSummarizedExperiment-objects")
-	# Little piping function
+	# Little piping function for relative abundances
 	pip <- function(phylo, level){
 		phylo |>
                 mia::makeTreeSummarizedExperimentFromPhyloseq() |>
@@ -439,11 +439,7 @@ model <- function(
                 mia::transformSamples(x = _, method = "relabundance") |>
                 mia::transformSamples(x = _, abund_values = "relabundance", pseudocount = 1, method = "clr", name = "clr_transformation") |>
                 (\(x) { assay(x, "clr_transformation") })() |>
-		(\(x) { x[which(!rownames(x) %in% c("s__", "g__", "f__", "o__", "c__", "p__", "k__", "d__")),] }
-	}
-	# Omit rownames with exact name
-	omit_pip <- function(p, omit = "f__"){
-		p[which(!rownames(p) == omit),]
+		(\(x) { x[which(!rownames(x) %in% c("s__", "g__", "f__", "o__", "c__", "p__", "k__", "d__")),] })()
 	}
 	# Training data relative abundances
 	catsystime("Training data relative abundances...")
