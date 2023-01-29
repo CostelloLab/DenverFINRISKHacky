@@ -42,9 +42,10 @@ model <- function(
 
 	# Small system time print function to help track runtimes; checking that the runtimes stay reasonable in a small-scale Ubuntu 22.04 LTS VM
 	catsystime <- \(x){
-		cat("\nCurrent system time\n")
-		if(!missing(x)) cat(paste("Current step:", x, "\n"))
+		cat("\n\nCurrent system time:\n")
 		cat(as.character(Sys.time()))
+		cat("\n")
+		if(!missing(x)) cat(paste("Current step:", x, "\n"))
 		cat("\n\n")
 	}
 	
@@ -242,6 +243,8 @@ model <- function(
 		f__Ruminococcaceae = apply(train_abufamily[grep("f__Ruminococcaceae", rownames(train_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
 		g__Blautia = apply(train_abugenus[grep("g__Blautia", rownames(train_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)
 	)
+	# Add interactions
+	train_curated1 <- cbind(train_curated1, interact.all(train_curated1))
 		
 	# Loosely generated literature-driven abundance combinations		
 	train_curated2 <- data.frame(
@@ -277,6 +280,8 @@ model <- function(
 		f__Ruminococcaceae = apply(test_abufamily[grep("f__Ruminococcaceae", rownames(test_abufamily), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum),
 		g__Blautia = apply(test_abugenus[grep("g__Blautia", rownames(test_abugenus), value=TRUE),,drop=FALSE], MARGIN=2, FUN=sum)
 	)
+	# Add interactions
+	test_curated1 <- cbind(test_curated1, interact.all(test_curated1))
 
 	# Loosely generated literature-driven abundance combinations		
 	test_curated2 <- data.frame(
@@ -433,9 +438,14 @@ model <- function(
                 mia::agglomerateByRank(x = _, rank = level) |>
                 mia::transformSamples(x = _, method = "relabundance") |>
                 mia::transformSamples(x = _, abund_values = "relabundance", pseudocount = 1, method = "clr", name = "clr_transformation") |>
-                (\(x) { assay(x, "clr_transformation") })() 
+                (\(x) { assay(x, "clr_transformation") })() |>
+		(\(x) { x[which(!rownames(x) %in% c("s__", "g__", "f__", "o__", "c__", "p__", "k__", "d__")),] }
 	}
-	# Training relative abundances
+	# Omit rownames with exact name
+	omit_pip <- function(p, omit = "f__"){
+		p[which(!rownames(p) == omit),]
+	}
+	# Training data relative abundances
 	catsystime("Training data relative abundances...")
 	train_relabus <- t(rbind(
 		pip(train_phyloseq, level = "Genus"),
@@ -444,7 +454,7 @@ model <- function(
 		pip(train_phyloseq, level = "Class"),
 		pip(train_phyloseq, level = "Phylum")
 	))
-	# Test relative abundances
+	# Test data relative abundances
 	catsystime("Test data relative abundances...")
 	test_relabus <- t(rbind(
 		pip(test_phyloseq, level = "Genus"),
@@ -480,23 +490,27 @@ model <- function(
                 JuniorNonobeseFemale = as.numeric(test_clin$Age < 60 & test_clin$BodyMassIndex < 30 & test_clin$Sex == 0)
         )
 
-	catsystime("Training trinary stratified Family-taxa relative abundances...")
+	catsystime("Training data trinary stratified Family-/Phylum-taxa relative abundances...")
 	
+	# Use Family and Phylum level taxa, appeared to be prevalent in literature and possibly strong enough signal with respect to trinarized strata
 	train_tri <- cbind(train_tricomb, 
-		t(pip(train_phyloseq, level = "Family"))
+		t(pip(train_phyloseq, level = "Family")),
+		t(pip(train_phyloseq, level = "Phylum"))
 	)
 	
+	# Interactions between the trinarized indicators and relative abundances
 	train_tri <- interact.part(train_tri, first = colnames(train_tri)[1:ncol(train_tricomb)], second = colnames(train_tri)[(ncol(train_tricomb)+1):ncol(train_tri)])
 
-	catsystime("Test trinary stratified Family-taxa relative abundances...")
+	catsystime("Test data trinary stratified Family-/Phylum-taxa relative abundances...")
 
+	# Use Family and Phylum level taxa, appeared to be prevalent in literature and possibly strong enough signal with respect to trinarized strata
 	test_tri <- cbind(test_tricomb, 
-		t(pip(test_phyloseq, level = "Family"))
+		t(pip(test_phyloseq, level = "Family")),
+		t(pip(test_phyloseq, level = "Phylum"))
 	)
 	
+	# Interactions between the trinarized indicators and relative abundances
 	test_tri <- interact.part(test_tri, first = colnames(test_tri)[1:ncol(test_tricomb)], second = colnames(test_tri)[(ncol(test_tricomb)+1):ncol(test_tri)])
-
-	# Omit rows in train_relabus / test_relabus where over 50% of the samples consist of a single value
 
 	## Modular modelling of risk
 	# Generic use module training with glmnet 10-fold CV
@@ -521,7 +535,7 @@ model <- function(
 		if(!is.null(vars) & length(vars)>0){
 			print("lambda.1se, non-zero coefs:")			
 			#print(colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]])
-			print(cbind(
+			print(data.frame(
 				Variable = colnames(trainx)[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]],
 				Coef = predict(fit, s = cv$lambda.1se, type = "coefficient")[predict(fit, s = cv$lambda.1se, type = "nonzero")[[1]]]
 				)
@@ -530,71 +544,112 @@ model <- function(
 			print("All coefficients shrunk to zero.")
 		}
 
+		# Bundle both train and test module predictions into a list
+		preds <- list()
+
 		# Submission 5 was a test for the less conservative $lambda.min, reverting back to more conservative $lambda.1se
 		if(v == 5){
-			pred <- predict(fit, newx = as.matrix(testx), s = cv$lambda.min, type = "response")
+			# No longer functional
+			#pred <- predict(fit, newx = as.matrix(testx), s = cv$lambda.min, type = "response")
 		}else{
-			pred <- predict(fit, newx = as.matrix(testx), s = cv$lambda.1se, type = "response")
+			#pred <- predict(fit, newx = as.matrix(testx), s = cv$lambda.1se, type = "response")
+			# Return two list elements; first is for training data, second is for test data predictions (
+			preds[[1]] <- predict(fit, newx = as.matrix(trainx), s = cv$lambda.1se, type = "response")[,1]
+			preds[[2]] <- predict(fit, newx = as.matrix(testx), s = cv$lambda.1se, type = "response")[,1]
 		}
 
-		pred[,1]
+		preds
 	}
 
 	# Run across multiple RNG seeds to alleviate random binning effects
 	scores <- do.call("cbind", lapply(seeds, FUN=\(s){
-		set.seed(s)
 		catsystime(paste("\n\nRunning model CVs, with seed", s, "and alpha", a, "\n\n"))	
 
-		# Part Ia: Training data, individual modules
+		# Part I
+		set.seed(s)
+		catsystime("\nmodule_agesex\n")
+		module_agesex <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
+		catsystime("\nmodule_metamix\n")
+		module_metamix <- module_glmnet(trainx = train_clin2, trainy = train_y, test = test_clin2)	
+		catsystime("\nmodule_alpha\n")
+		module_alpha <- module_glmnet(trainx = train_alpha, trainy = train_y, test = test_alpha)
+		catsystime("\nmodule_beta\n")
+		module_beta <- module_glmnet(trainx = train_beta, trainy = train_y, test = test_beta)
+		catsystime("\nmodule_relabus\n")
+		module_relabus <- module_glmnet(trainx = train_relabus, trainy = train_y, test = test_relabus)
+		catsystime("\nmodule_curated1\n")
+		module_curated1 <- module_glmnet(trainx = train_curated1, trainy = train_y, test = test_curated1)
+		catsystime("\nmodule_curated2\n")
+		module_curated2 <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
+		catsystime("\nmodule_trinaryfamilyphylum\n")
+		module_trinaryfamilyphylum <- module_glmnet(trainx = train_tri, trainy = train_y, test = test_tri)
+
 		catsystime("Pt Ia")	
-		catsystime("module_agesex")
-		ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = train_clin)
-		catsystime("module_metamix")
-		ensemble_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = train_clin2)
+		#catsystime("module_agesex")
+		#ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = train_clin)
+		ensemble_temp[,"module_agesex"] <- module_agesex[[1]]
+		#catsystime("module_metamix")
+		#ensemble_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = train_clin2)
+		ensemble_temp[,"module_metamix"] <- module_metamix[[1]]
 		#catsystime("module_genus_glmnet")
 		#ensemble_temp[,"module_genus_glmnet"] <- module_glmnet(trainx = train_g, trainy = train_y, test = train_g)
 		#catsystime("module_family_glmnet")
 		#ensemble_temp[,"module_family_glmnet"] <- module_glmnet(trainx = train_f, trainy = train_y, test = train_f)
-		catsystime("module_alpha_glmnet")
-		ensemble_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = train_alpha)
-		catsystime("module_beta_glmnet")
-		ensemble_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = train_beta)
-		catsystime("module_relabus_glmnet")
-		ensemble_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = train_relabus)
-		catsystime("module_curated1_glmnet")
-		ensemble_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = train_curated1)
-		catsystime("module_curated2_glmnet")
-		ensemble_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = train_curated2)
-		catsystime("module_trinaryfamily_glmnet")
-		ensemble_temp[,"module_trinaryfamily_glmnet"] <- module_glmnet(trainx = train_tri, trainy = train_y, test = train_tri)
+		#catsystime("module_alpha_glmnet")
+		#ensemble_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = train_alpha)
+		ensemble_temp[,"module_alpha"] <- module_alpha[[1]]
+		#catsystime("module_beta_glmnet")
+		#ensemble_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = train_beta)
+		ensemble_temp[,"module_beta"] <- module_beta[[1]]
+		#catsystime("module_relabus_glmnet")
+		#ensemble_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = train_relabus)
+		ensemble_temp[,"module_relabus"] <- module_relabus[[1]]
+		#catsystime("module_curated1_glmnet")
+		#ensemble_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = train_curated1)
+		ensemble_temp[,"module_curated1"] <- module_curated1[[1]]
+		#catsystime("module_curated2_glmnet")
+		#ensemble_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = train_curated2)
+		ensemble_temp[,"module_curated2"] <- module_curated2[[1]]
+		#catsystime("module_trinaryfamily_glmnet")
+		#ensemble_temp[,"module_trinaryfamily_glmnet"] <- module_glmnet(trainx = train_tri, trainy = train_y, test = train_tri)
+		ensemble_temp[,"module_trinaryfamilyphylum"] <- module_trinaryfamilyphylum[[1]]
 
-		print("Ensemble head")
+		print("Training ensemble modules head")
 		print(head(ensemble_temp))
 
 		# Part Ib: Test data, individual modules
-		catsystime("Pt Ib")
-		catsystime("module_agesex")
-		output_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
-		catsystime("module_metamix")
-		output_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = test_clin2)
+		#set.seed(s)
+		#catsystime("Pt Ib")
+		#catsystime("module_agesex")
+		#output_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
+		output_temp[,"module_agesex"] <- module_agesex[[2]]
+		#catsystime("module_metamix")
+		#output_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = test_clin2)
+		output_temp[,"module_metamix"] <- module_metamix[[2]]
 		#catsystime("module_genus_glmnet")
 		#output_temp[,"module_genus_glmnet"] <- module_glmnet(trainx = train_g, trainy = train_y, test = test_g)
 		#catsystime("module_family_glmnet")
 		#output_temp[,"module_family_glmnet"] <- module_glmnet(trainx = train_f, trainy = train_y, test = test_f)
-		catsystime("module_alpha_glmnet")
-		output_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = test_alpha)
-		catsystime("module_beta_glmnet")
-		output_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = test_beta)
-		catsystime("module_relabus_glmnet")
-		output_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = test_relabus)
-		catsystime("module_curated1_glmnet")
-		output_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = test_curated1)
-		catsystime("module_curated2_glmnet")
-		output_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
-		catsystime("module_trinaryfamily_glmnet")
-		output_temp[,"module_trinaryfamily_glmnet"] <- module_glmnet(trainx = train_tri, trainy = train_y, test = test_tri)
+		#catsystime("module_alpha_glmnet")
+		#output_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = test_alpha)
+		output_temp[,"module_alpha"] <- module_alpha[[2]]
+		#catsystime("module_beta_glmnet")
+		#output_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = test_beta)
+		output_temp[,"module_beta"] <- module_beta[[2]]
+		#catsystime("module_relabus_glmnet")
+		#output_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = test_relabus)
+		output_temp[,"module_relabus"] <- module_relabus[[2]]
+		#catsystime("module_curated1_glmnet")
+		#output_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = test_curated1)
+		output_temp[,"module_curated1"] <- module_curated1[[2]]
+		#catsystime("module_curated2_glmnet")
+		#output_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
+		output_temp[,"module_curated2"] <- module_curated2[[2]]
+		#catsystime("module_trinaryfamily_glmnet")
+		#output_temp[,"module_trinaryfamily_glmnet"] <- module_glmnet(trainx = train_tri, trainy = train_y, test = test_tri)
+		output_temp[,"module_trinaryfamilyphylum"] <- module_trinaryfamilyphylum[[2]]
 			
-		print("Temp output head")
+		print("Temp test prediction output head")
 		print(head(output_temp))
 
 		# Submissions 1-3 were not penalized Cox ensembles
@@ -611,21 +666,19 @@ model <- function(
 		# Submissions 4+ testing penalized Cox ensembles (nested basically); sub 4 is more conservative with lambda.1se, sub 5 is lambda.min
 		}else{
 			catsystime("-- Final modules to include, nested regularization --")
-			#print("Nested regularization")
 			w1 <- grep("module", colnames(ensemble_temp), value = TRUE)
 			w2 <- grep("module", colnames(output_temp), value = TRUE)
-			#output_final[,"Score"] <- module_glmnet(trainx = ensemble_temp[,w1], trainy = train_y, test = output_temp[,w2])
 			# Return scores from this particular seed; standardize output via z-scores
-			zscale(module_glmnet(trainx = ensemble_temp[,w1], trainy = train_y, test = output_temp[,w2]))
+			zscale(module_glmnet(trainx = ensemble_temp[,w1], trainy = train_y, test = output_temp[,w2])[[2]])
 		}
 	}))
 
 	# Head of scores over different seeds
-	print("Scores head across random seeds")
+	print("Head of scores across random seeds (cols=seeds, rows=patients)")
 	print(head(scores))		
 	output_final[,"Score"] <- apply(scores, MARGIN=1, FUN=mean) # Take mean across predicted scores across random seeds		
 
-	print("Score means head")
+	print("Head of the mean of scores across seeds")
 	print(head(output_final))
 
 	# Scale within [0,1] as instructed
@@ -853,7 +906,7 @@ res <- model(
 	train_phyloseq = train_phylo, # Training phyloseq object
 	test_phyloseq = test_phylo, # Train phyloseq object
 	v = subv, # Submission version
-	seeds = 1:5 # Vector of random seeds to alleviate random binning effects, used for multiple runs
+	seeds = 7:9 # Vector of random seeds to alleviate random binning effects, used for multiple runs
 )
 
 # Write the resulting scores.csv
