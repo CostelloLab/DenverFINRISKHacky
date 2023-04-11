@@ -16,6 +16,9 @@ library(TreeSummarizedExperiment)
 library(ecodist)
 library(vegan)
 
+# List of coefficients across multiple seeds 
+coefs <- list()
+
 ###
 #
 # Define main model function
@@ -381,8 +384,6 @@ model <- function(
 	test_alpha <- cbind(test_alpha, interact.all(test_alpha))
 
 	# Beta, examine PCoA vectors up to 10th
-	#print("Calculating beta diversity for train cohort using mia...")
-	#print("mia...")
 	catsystime("Beta diversity metrics")
 	catsystime("Training data...")
 	train_tse <- train_phyloseq |>
@@ -522,6 +523,7 @@ model <- function(
 		}
 
 		# Bundle both train and test module predictions into a list
+		# Post-challenge phase: also return the coefficients
 		preds <- list()
 
 		# Submission 5 was a test for the less conservative $lambda.min, reverting back to more conservative $lambda.1se
@@ -529,10 +531,11 @@ model <- function(
 			# No longer functional
 			#pred <- predict(fit, newx = as.matrix(testx), s = cv$lambda.min, type = "response")
 		}else{
-			#pred <- predict(fit, newx = as.matrix(testx), s = cv$lambda.1se, type = "response")
 			# Return two list elements; first is for training data, second is for test data predictions (
 			preds[[1]] <- predict(fit, newx = as.matrix(trainx), s = cv$lambda.1se, type = "response")[,1]
 			preds[[2]] <- predict(fit, newx = as.matrix(testx), s = cv$lambda.1se, type = "response")[,1]
+			# Post-challenge phase, also return the used coefficients
+			preds[[3]] <- predict(fit, newx = as.matrix(testx), s = cv$lambda.1se, type = "coefficients")[,1]
 		}
 
 		preds
@@ -541,6 +544,11 @@ model <- function(
 	# Run across multiple RNG seeds to alleviate random binning effects
 	scores <- do.call("cbind", lapply(seeds, FUN=\(s){
 		catsystime(paste("\n\nRunning model CVs, with seed", s, "and alpha", a, "\n\n"))	
+
+		# Add new list of coefficients for the new seed
+		# Quick & dirty solution of using a global list of lists in 'coefs'
+		coefs[[length(coefs)+1]] <<- list()
+		names(length(coefs)) <- paste0("seed_", s) # Save name for the outer nested loop set seed
 
 		# Part I
 		set.seed(s)
@@ -562,68 +570,26 @@ model <- function(
 		module_trinaryfamilyphylum <- module_glmnet(trainx = train_tri, trainy = train_y, test = test_tri)
 
 		catsystime("Pt Ia")	
-		#catsystime("module_agesex")
-		#ensemble_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = train_clin)
 		ensemble_temp[,"module_agesex"] <- module_agesex[[1]]
-		#catsystime("module_metamix")
-		#ensemble_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = train_clin2)
 		ensemble_temp[,"module_metamix"] <- module_metamix[[1]]
-		#catsystime("module_genus_glmnet")
-		#ensemble_temp[,"module_genus_glmnet"] <- module_glmnet(trainx = train_g, trainy = train_y, test = train_g)
-		#catsystime("module_family_glmnet")
-		#ensemble_temp[,"module_family_glmnet"] <- module_glmnet(trainx = train_f, trainy = train_y, test = train_f)
-		#catsystime("module_alpha_glmnet")
-		#ensemble_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = train_alpha)
 		ensemble_temp[,"module_alpha"] <- module_alpha[[1]]
-		#catsystime("module_beta_glmnet")
-		#ensemble_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = train_beta)
 		ensemble_temp[,"module_beta"] <- module_beta[[1]]
-		#catsystime("module_relabus_glmnet")
-		#ensemble_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = train_relabus)
 		ensemble_temp[,"module_relabus"] <- module_relabus[[1]]
-		#catsystime("module_curated1_glmnet")
-		#ensemble_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = train_curated1)
 		ensemble_temp[,"module_curated1"] <- module_curated1[[1]]
-		#catsystime("module_curated2_glmnet")
-		#ensemble_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = train_curated2)
 		ensemble_temp[,"module_curated2"] <- module_curated2[[1]]
-		#catsystime("module_trinaryfamily_glmnet")
-		#ensemble_temp[,"module_trinaryfamily_glmnet"] <- module_glmnet(trainx = train_tri, trainy = train_y, test = train_tri)
 		ensemble_temp[,"module_trinaryfamilyphylum"] <- module_trinaryfamilyphylum[[1]]
 
 		print("Training ensemble modules head")
 		print(head(ensemble_temp))
 
 		# Part Ib: Test data, individual modules
-		#set.seed(s)
-		#catsystime("Pt Ib")
-		#catsystime("module_agesex")
-		#output_temp[,"module_agesex"] <- module_glmnet(trainx = train_clin, trainy = train_y, test = test_clin)
 		output_temp[,"module_agesex"] <- module_agesex[[2]]
-		#catsystime("module_metamix")
-		#output_temp[,"module_metamix"] <- module_glmnet(trainx = train_clin2, trainy = train_y, test = test_clin2)
 		output_temp[,"module_metamix"] <- module_metamix[[2]]
-		#catsystime("module_genus_glmnet")
-		#output_temp[,"module_genus_glmnet"] <- module_glmnet(trainx = train_g, trainy = train_y, test = test_g)
-		#catsystime("module_family_glmnet")
-		#output_temp[,"module_family_glmnet"] <- module_glmnet(trainx = train_f, trainy = train_y, test = test_f)
-		#catsystime("module_alpha_glmnet")
-		#output_temp[,"module_alpha_glmnet"] <- module_glmnet(trainx = train_alpha, trainy = train_y, test = test_alpha)
 		output_temp[,"module_alpha"] <- module_alpha[[2]]
-		#catsystime("module_beta_glmnet")
-		#output_temp[,"module_beta_glmnet"] <- module_glmnet(trainx = train_beta, trainy = train_y, test = test_beta)
 		output_temp[,"module_beta"] <- module_beta[[2]]
-		#catsystime("module_relabus_glmnet")
-		#output_temp[,"module_relabus_glmnet"] <- module_glmnet(trainx = train_relabus, trainy = train_y, test = test_relabus)
 		output_temp[,"module_relabus"] <- module_relabus[[2]]
-		#catsystime("module_curated1_glmnet")
-		#output_temp[,"module_curated1_glmnet"] <- module_glmnet(trainx = train_curated1, trainy = train_y, test = test_curated1)
 		output_temp[,"module_curated1"] <- module_curated1[[2]]
-		#catsystime("module_curated2_glmnet")
-		#output_temp[,"module_curated2_glmnet"] <- module_glmnet(trainx = train_curated2, trainy = train_y, test = test_curated2)
 		output_temp[,"module_curated2"] <- module_curated2[[2]]
-		#catsystime("module_trinaryfamily_glmnet")
-		#output_temp[,"module_trinaryfamily_glmnet"] <- module_glmnet(trainx = train_tri, trainy = train_y, test = test_tri)
 		output_temp[,"module_trinaryfamilyphylum"] <- module_trinaryfamilyphylum[[2]]
 			
 		print("Temp test prediction output head")
@@ -646,7 +612,24 @@ model <- function(
 			w1 <- grep("module", colnames(ensemble_temp), value = TRUE)
 			w2 <- grep("module", colnames(output_temp), value = TRUE)
 			# Return scores from this particular seed; standardize output via z-scores
-			zscale(module_glmnet(trainx = ensemble_temp[,w1], trainy = train_y, test = output_temp[,w2])[[2]])
+			tmp <- module_glmnet(trainx = ensemble_temp[,w1], trainy = train_y, test = output_temp[,w2])
+
+			# Store identified coefficients per module, and final element as the identified modules
+			# Post-challenge phase; store coefficients inside each module
+			coefs[[length(coefs)]] <<- list(
+				coefs_module_agesex = module_agesex[[3]],
+				coefs_module_metamix = module_metamix[[3]],
+				coefs_module_alpha = module_alpha[[3]],
+				coefs_module_beta = module_beta[[3]],
+				coefs_module_relabus = module_relabus[[3]],
+				coefs_module_curated1 = module_curated1[[3]],
+				coefs_module_curated2 = module_curated2[[3]],
+				coefs_module_trinaryfamilyphylum = module_trinaryfamilyphylum[[3]],
+				coefs_modules = tmp[[3]]
+			)
+
+			# Return predictions themselves
+			zscale(tmp[[2]])
 		}
 	}))
 
@@ -834,8 +817,8 @@ imputationNaive <- function(
 ###
 
 # Submission number
-subv <- 6
-subname <- "Final"
+subv <- 7
+subname <- "Post"
 
 args=(commandArgs(TRUE))
 PARAM <- list()
@@ -888,6 +871,9 @@ res <- model(
 
 # Write the resulting scores.csv
 write.csv(res, file=paste0(PARAM$folder.result, "scores.csv"), quote=FALSE, row.names=FALSE)
+
+# Write the list of lists with EN-penalized linear Cox model coefficients as an RData object
+save(coefs, file=paste0(PARAM$folder.result, "coefs.RData"))
 
 # Just in case for debugging
 print("args provided:")
