@@ -3,7 +3,7 @@ Bootstrap: docker
 FROM: bioconductor/bioconductor_docker:devel
 
 %labels
-  TDL, DenverFINRISKHacky final submission
+  TDL, DenverFINRISKHacky post-challenge submission
 
 %help
   DenverFINRISKHacky singularity image
