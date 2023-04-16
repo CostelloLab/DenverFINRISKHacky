@@ -632,7 +632,21 @@ model <- function(
 			)
 
 			# Return predictions themselves
-			zscale(tmp[[2]])
+			print("Head of prediction prior to z-scaling:\n")
+			print(head(tmp[[2]]))
+
+			print("Mean of predictions prior:")
+			print(mean(tmp[[2]], na.rm=TRUE))
+
+			print("Stdev of predictions prior:")
+			print(sd(tmp[[2]], na.rm=TRUE))
+
+			ztmp <- zscale(tmp[[2]])
+
+			print("Head of z-scaled predictions:\n")
+			print(head(ztmp))
+
+			ztmp
 		}
 	}))
 
@@ -871,6 +885,10 @@ res <- model(
 	v = subv, # Submission version
 	seeds = 1:10 # Vector of random seeds to alleviate random binning effects, used for multiple runs
 )
+
+# Provide debug output
+print("Final head of results results:\n")
+print(head(res))
 
 # Write the resulting scores.csv
 write.csv(res, file=paste0(PARAM$folder.result, "scores.csv"), quote=FALSE, row.names=FALSE)
