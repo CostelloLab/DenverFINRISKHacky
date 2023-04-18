@@ -390,8 +390,9 @@ model <- function(
 		mia::makeTreeSummarizedExperimentFromPhyloseq() |>
 		mia::agglomerateByRank(x = _, rank = "Genus") |>
 		mia::transformSamples(x = _, method = "relabundance") |>
+		mia::transformSamples(x = _, assay_name = "relabundance", pseudocount = 1, method = "clr")
 		#mia::transformSamples(x = _, abund_values = "relabundance", pseudocount = 1, method = "clr")
-		mia::transformSamples(x = _, pseudocount = 1, method = "clr")
+		#mia::transformSamples(x = _, pseudocount = 1, method = "clr")
 
 	catsystime("vegan & ecodist...")
 	train_beta <- t(assays(train_tse)$relabundance) |>
@@ -404,8 +405,9 @@ model <- function(
                 mia::makeTreeSummarizedExperimentFromPhyloseq() |>
                 mia::agglomerateByRank(x = _, rank = "Genus") |>
                 mia::transformSamples(x = _, method = "relabundance") |>
+              	mia::transformSamples(x = _, assay_name = "relabundance", pseudocount = 1, method = "clr")
               	#mia::transformSamples(x = _, abund_values = "relabundance", pseudocount = 1, method = "clr")
-		mia::transformSamples(x = _, pseudocount = 1, method = "clr")
+		#mia::transformSamples(x = _, pseudocount = 1, method = "clr")
 
 	catsystime("vegan & ecodist...")
         test_beta <- t(assays(test_tse)$relabundance) |>
@@ -421,8 +423,9 @@ model <- function(
                 mia::makeTreeSummarizedExperimentFromPhyloseq() |>
                 mia::agglomerateByRank(x = _, rank = level) |>
                 mia::transformSamples(x = _, method = "relabundance") |>
+                mia::transformSamples(x = _, assay_name = "relabundance", pseudocount = 1, method = "clr", name = "clr_transformation") |>
                 #mia::transformSamples(x = _, abund_values = "relabundance", pseudocount = 1, method = "clr", name = "clr_transformation") |>
-		mia::transformSamples(x = _, pseudocount = 1, method = "clr", name = "clr_transformation") |>
+		#mia::transformSamples(x = _, pseudocount = 1, method = "clr", name = "clr_transformation") |>
                 (\(x) { assay(x, "clr_transformation") })() |>
 		(\(x) { x[which(!rownames(x) %in% c("s__", "g__", "f__", "o__", "c__", "p__", "k__", "d__")),] })()
 	}
